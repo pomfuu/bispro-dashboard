@@ -23,7 +23,7 @@
     "xlsx": "^0.18.5"
   },
   "engines": {
-  "node": "18"
+  "node": "18.x"
   },
   "scripts": {
     "start": "react-scripts start",
