@@ -440,16 +440,7 @@ const DetailModal = ({ show, handleClose, fppData }) => {
 };
 
 function Dashboard() {
-  const { user, getUserFullTim } = useAuth();
-  
-  // Debug info
-  useEffect(() => {
-    console.log('=== DASHBOARD DEBUG INFO ===');
-    console.log('User object:', user);
-    console.log('User full tim:', getUserFullTim());
-    console.log('Is Head?', user?.role === 'head' || user?.isHead);
-    console.log('===========================');
-  }, [user, getUserFullTim]);
+  const { user } = useAuth();
   
   // State untuk data
   const [selectedDepartments, setSelectedDepartments] = useState(['ALL']);
@@ -483,8 +474,25 @@ function Dashboard() {
   // Cek apakah user adalah Head
   const isHead = user?.role === 'head' || user?.isHead;
   
-  // Get user's info
+  // Get user's full TIM format
+  const getUserFullTim = () => {
+    if (!user) return '';
+    if (isHead) return 'HEAD';
+    
+    // Format: "DPA-Akuisisi"
+    return `${user.department || ''}-${user.tim || ''}`;
+  };
+
   const userFullTim = getUserFullTim();
+
+  // Debug info
+  useEffect(() => {
+    console.log('=== DASHBOARD DEBUG INFO ===');
+    console.log('User object:', user);
+    console.log('User full tim:', userFullTim);
+    console.log('Is Head?', isHead);
+    console.log('===========================');
+  }, [user, userFullTim, isHead]);
 
   // Fungsi untuk grouping data
   const groupByMasterProject = (data) => {
@@ -523,6 +531,52 @@ function Dashboard() {
     return Object.values(grouped);
   };
 
+  // ========== FUNGSI PERBAIKAN: FILTER BERDASARKAN AKSES USER ==========
+  
+  // Fungsi untuk memeriksa apakah user memiliki akses ke FPP
+  const hasAccessToFpp = (fpp) => {
+    if (!user) return false;
+    
+    // HEAD bisa akses semua
+    if (isHead) {
+      return true;
+    }
+    
+    // User biasa - cek akses berdasarkan PIC utama dan tim project
+    console.log('Checking access for FPP:', fpp.noFpp);
+    
+    // 1. Cek apakah user adalah PIC utama dari FPP
+    if (fpp.pic && fpp.pic === userFullTim) {
+      console.log('Access granted: User is main PIC', userFullTim);
+      return true;
+    }
+    
+    // 2. Cek apakah user ada di tim project
+    if (fpp.timProject && Array.isArray(fpp.timProject)) {
+      const isInProjectTeam = fpp.timProject.some(member => {
+        const memberFullTim = `${member.department || ''}-${member.tim || ''}`;
+        const hasAccess = memberFullTim === userFullTim;
+        if (hasAccess) {
+          console.log('Access granted: User found in timProject', memberFullTim);
+        }
+        return hasAccess;
+      });
+      
+      if (isInProjectTeam) {
+        return true;
+      }
+    }
+    
+    // 3. Cek apakah FPP dari department dan tim yang sama (untuk visibility)
+    if (fpp.department === user.department && fpp.tim === user.tim) {
+      console.log('Access granted: Same department/tim');
+      return true;
+    }
+    
+    console.log('Access denied for FPP:', fpp.noFpp);
+    return false;
+  };
+
   // Fungsi untuk memfilter data berdasarkan akses user
   const filterByUserAccess = (data) => {
     console.log('filterByUserAccess called, isHead:', isHead, 'data length:', data?.length);
@@ -537,25 +591,13 @@ function Dashboard() {
     }
     
     // User biasa hanya bisa melihat data yang terkait dengan mereka
-    const filtered = data.filter(fpp => {
-      // Cek apakah user adalah PIC utama dari FPP
-      const isMainPic = fpp.pic === userFullTim;
-      
-      // Cek apakah user ada di tim project
-      let isInProjectTeam = false;
-      if (fpp.timProject && Array.isArray(fpp.timProject)) {
-        isInProjectTeam = fpp.timProject.some(member => {
-          const memberFullTim = `${member.department || ''}-${member.tim || ''}`;
-          return memberFullTim === userFullTim;
-        });
-      }
-      
-      return isMainPic || isInProjectTeam;
-    });
+    const filtered = data.filter(fpp => hasAccessToFpp(fpp));
     
     console.log('TIM user filtered data:', filtered.length, 'out of', data.length);
     return filtered;
   };
+
+  // ========== END PERBAIKAN ==========
 
   // Ambil data dari monitoring
   const fetchAllData = async () => {
@@ -606,10 +648,21 @@ function Dashboard() {
       
       console.log('Formatted data:', formattedData.length);
       
-      // Hanya filter data untuk user biasa, HEAD melihat semua
-      const accessibleData = isHead ? formattedData : filterByUserAccess(formattedData);
+      // Filter data berdasarkan akses user
+      const accessibleData = filterByUserAccess(formattedData);
       
       console.log('Accessible data after filter:', accessibleData.length);
+      
+      // Debug: Tampilkan project yang bisa diakses
+      if (!isHead) {
+        console.log('Projects accessible to user:', accessibleData.map(p => ({
+          noFpp: p.noFpp,
+          pic: p.pic,
+          department: p.department,
+          tim: p.tim,
+          isMainPic: p.pic === userFullTim
+        })));
+      }
       
       setFppEntries(accessibleData);
       
@@ -620,16 +673,8 @@ function Dashboard() {
       
       setGroupedData(grouped);
       
-      // Untuk HEAD, langsung set filteredData tanpa apply filter
-      if (isHead) {
-        console.log('HEAD user - setting filtered data directly');
-        setFilteredData(grouped);
-        const startIndex = (currentPage - 1) * itemsPerPage;
-        const endIndex = startIndex + itemsPerPage;
-        setDisplayData(grouped.slice(startIndex, endIndex));
-      } else {
-        applyFiltersToData(grouped);
-      }
+      // Apply filters
+      applyFiltersToData(grouped);
       
       // Setup real-time listener
       const unsubscribe = onSnapshot(collection(db, 'fpp_monitoring'), (snapshot) => {
@@ -663,22 +708,15 @@ function Dashboard() {
           updatedAt: item.updatedAt || new Date()
         }));
         
-        // Hanya filter data untuk user biasa, HEAD melihat semua
-        const updatedAccessibleData = isHead ? updatedFormattedData : filterByUserAccess(updatedFormattedData);
+        // Filter data berdasarkan akses user
+        const updatedAccessibleData = filterByUserAccess(updatedFormattedData);
         
         setFppEntries(updatedAccessibleData);
         
         const newGrouped = groupByMasterProject(updatedAccessibleData);
         setGroupedData(newGrouped);
         
-        if (isHead) {
-          setFilteredData(newGrouped);
-          const startIndex = (currentPage - 1) * itemsPerPage;
-          const endIndex = startIndex + itemsPerPage;
-          setDisplayData(newGrouped.slice(startIndex, endIndex));
-        } else {
-          applyFiltersToData(newGrouped);
-        }
+        applyFiltersToData(newGrouped);
       });
       
       return unsubscribe;
@@ -1148,10 +1186,7 @@ function Dashboard() {
   // Apply filters ketika filters berubah
   useEffect(() => {
     console.log('Filters changed, applying...');
-    if (groupedData.length > 0 && !isHead) {
-      applyFiltersToData(groupedData);
-    } else if (isHead && groupedData.length > 0) {
-      // Untuk HEAD, kita perlu apply filters juga jika ada filter yang diaktifkan
+    if (groupedData.length > 0) {
       applyFiltersToData(groupedData);
     }
   }, [selectedDepartments, filters, activeKpiFilter, groupedData]);
@@ -1252,16 +1287,19 @@ function Dashboard() {
     );
   };
 
-  // Fungsi untuk reset dan reload
-  const handleResetAndReload = () => {
-    localStorage.removeItem('fpp_user');
-    window.location.reload();
-  };
-
   return (
     <Container className="py-4">
       <div className="mb-4">
         <div className="fs-5 fw-semibold">Dashboard</div>
+        <div className="text-muted small">
+          {user && (
+            <>
+              Logged in as: <Badge bg="info">{user.userType || user.role}</Badge>
+              {user.department && <Badge bg="secondary" className="ms-2">{user.department}</Badge>}
+              {user.tim && <Badge bg="light" text="dark" className="ms-2">{user.tim}</Badge>}
+            </>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -1539,13 +1577,6 @@ function Dashboard() {
                       <Button variant="primary" className="mt-2" onClick={fetchAllData}>
                         Coba Muat Ulang
                       </Button>
-                      <Button 
-                        variant="warning" 
-                        className="mt-2 ms-2"
-                        onClick={() => console.log('Firestore data check')}
-                      >
-                        Debug Firestore
-                      </Button>
                     </>
                   )}
                 </>
@@ -1568,7 +1599,7 @@ function Dashboard() {
                         <th style={{ width: '10%' }}>PIC</th>
                         <th style={{ width: '10%' }}>Durasi</th>
                         <th style={{ width: '10%' }}>Status</th>
-                        <th style={{ width: '15%' }}>Aksi</th> {/* Ganti dari Detail ke Aksi */}
+                        <th style={{ width: '15%' }}>Aksi</th>
                       </tr>
                     </thead>
                       <tbody>

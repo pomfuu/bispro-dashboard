@@ -1,3 +1,4 @@
+// src/pages/Monitoring.js
 import React, { useState, useEffect } from 'react';
 import { Container, Card, Badge, Table, Button, Form, Modal, Alert, Spinner, Row, Col, InputGroup, Pagination } from 'react-bootstrap';
 import { db } from '../firebase';
@@ -115,6 +116,71 @@ function Monitoring() {
     }
   }, [user]);
 
+  // ========== FUNGSI BARU: FILTER BERDASARKAN USER DEPARTMENT ==========
+  
+  // Fungsi untuk memeriksa apakah project terkait dengan department user
+  const isProjectRelatedToUserDepartment = (item) => {
+    if (!userDepartment) return true; // Jika tidak ada user department, tampilkan semua
+    
+    const userDeptUpper = userDepartment.toUpperCase();
+    
+    // 1. Cek apakah PIC utama dari department yang sama
+    if (item.department && item.department.toUpperCase() === userDeptUpper) {
+      return true;
+    }
+    
+    // 2. Cek di timProject apakah ada anggota dari department user
+    if (item.timProject && Array.isArray(item.timProject)) {
+      const hasRelatedTeamMember = item.timProject.some(tim => {
+        // Cek department di tim project
+        if (tim.department && tim.department.toUpperCase() === userDeptUpper) {
+          return true;
+        }
+        
+        // Cek berdasarkan PIC/Nama (mungkin perlu mapping dari allUsers)
+        if (tim.nama || tim.pic) {
+          const memberName = (tim.nama || tim.pic).toLowerCase();
+          const userFromDB = allUsers.find(u => 
+            u.nama && u.nama.toLowerCase() === memberName
+          );
+          
+          if (userFromDB && userFromDB.unit) {
+            const userDeptInDB = userFromDB.unit.toUpperCase();
+            return userDeptInDB === userDeptUpper;
+          }
+        }
+        
+        return false;
+      });
+      
+      if (hasRelatedTeamMember) {
+        return true;
+      }
+    }
+    
+    // 3. Cek berdasarkan PIC utama (mungkin perlu mapping dari allUsers)
+    if (item.pic) {
+      const picName = item.pic.toLowerCase();
+      const userFromDB = allUsers.find(u => 
+        u.nama && u.nama.toLowerCase() === picName
+      );
+      
+      if (userFromDB && userFromDB.unit) {
+        const picDept = userFromDB.unit.toUpperCase();
+        return picDept === userDeptUpper;
+      }
+    }
+    
+    return false;
+  };
+
+  // Fungsi untuk memfilter data berdasarkan user department
+  const filterByUserDepartment = (data) => {
+    if (!userDepartment) return data; // Jika tidak ada user department, tampilkan semua
+    
+    return data.filter(item => isProjectRelatedToUserDepartment(item));
+  };
+
   const fetchMonitoringData = async () => {
     setLoading(true);
     try {
@@ -148,14 +214,17 @@ function Monitoring() {
         return dateB - dateA;
       });
 
-      setMonitoringData(allData);
+      // Filter data berdasarkan user department
+      const filteredByDepartment = filterByUserDepartment(allData);
       
-      // Extract unique Tim untuk filter
-      const timList = [...new Set(allData.map(item => item.department).filter(Boolean))].sort();
+      setMonitoringData(filteredByDepartment);
+      
+      // Extract unique Tim untuk filter (hanya dari data yang sudah difilter)
+      const timList = [...new Set(filteredByDepartment.map(item => item.department).filter(Boolean))].sort();
       setAvailableTim(timList);
       
-      // Extract unique PICs untuk filter
-      const pics = [...new Set(allData.map(item => item.pic).filter(Boolean))].sort();
+      // Extract unique PICs untuk filter (hanya dari data yang sudah difilter)
+      const pics = [...new Set(filteredByDepartment.map(item => item.pic).filter(Boolean))].sort();
       setAvailablePICs(pics);
       
     } catch (error) {
@@ -914,6 +983,12 @@ function Monitoring() {
   // ========== HANDLERS UNTUK EDIT MODAL ==========
 
   const handleOpenEditModal = (item) => {
+    // Cek apakah user boleh mengedit project ini
+    if (!isProjectRelatedToUserDepartment(item)) {
+      showAlert('Anda tidak memiliki akses untuk mengedit project ini. Hanya user dari department terkait yang dapat mengedit.', 'warning');
+      return;
+    }
+    
     console.log('Opening edit modal for:', item.noFpp);
     
     const itemStatus = item.status === 'submitted' ? 'In Progress' : item.status || 'In Progress';
@@ -1196,6 +1271,7 @@ function Monitoring() {
                   <th>Monitoring</th>
                   <th>Status</th>
                   <th>PIC</th>
+                  <th>Department</th>
                   <th style={{ width: '80px' }}>Aksi</th>
                 </tr>
               </thead>
@@ -1247,6 +1323,9 @@ function Monitoring() {
                         <div className="d-flex flex-column">
                           <span className="fw-bold">{item.pic || '-'}</span>
                         </div>
+                      </td>
+                      <td>
+                        <Badge bg="info">{item.department || '-'}</Badge>
                       </td>
                       <td>
                         <Button
@@ -1530,7 +1609,7 @@ function Monitoring() {
   const renderEditModal = () => {
     if (!selectedItem) return null;
     
-    const isCurrentUserAllowed = user?.unit?.toUpperCase() === selectedItem.department?.toUpperCase();
+    const isCurrentUserAllowed = isProjectRelatedToUserDepartment(selectedItem);
     const allPICs = getAllAvailablePICs();
     
     // Format tanggal untuk input type="date"
@@ -1670,324 +1749,329 @@ function Monitoring() {
             </Card.Body>
           </Card>
           
-          <h5 className="mb-3">Edit Monitoring</h5>
+          {/* Info Akses User */}
+          {!isCurrentUserAllowed && (
+            <Alert variant="danger" className="mb-4">
+              <i className="bi bi-exclamation-triangle-fill me-2"></i>
+              <strong>Akses Dibatasi:</strong> Anda hanya dapat melihat data project ini, 
+              tidak dapat melakukan perubahan. Hanya user dari department terkait yang dapat mengedit.
+            </Alert>
+          )}
           
-          
-          {/* SECTION KETERANGAN */}
-          <Card className="mb-4">
-            <Card.Header className="bg-light">
-              <h6 className="mb-0">Keterangan</h6>
-            </Card.Header>
-            <Card.Body>
-              <Form.Group className="mb-3">
-                <Form.Label>Keterangan / Catatan</Form.Label>
-                <Form.Control
-                  as="textarea"
-                  rows={4}
-                  placeholder="Tambahkan keterangan atau catatan tentang progress project..."
-                  value={formData.keterangan}
-                  onChange={(e) => setFormData(prev => ({ ...prev, keterangan: e.target.value }))}
-                />
-                <Form.Text className="text-muted">
-                  Tambahkan informasi seperti progress terbaru, kendala, atau catatan penting lainnya
-                </Form.Text>
-              </Form.Group>
-            </Card.Body>
-          </Card>
-          
-          {/* SECTION TIM PROJECT & OUTPUTS */}
-          <Card className="mb-4">
-            <Card.Header className="bg-light d-flex justify-content-between align-items-center">
-              <h6 className="mb-0">Tim Project & Outputs</h6>
-              <Button
-                variant="outline-primary"
-                size="sm"
-                onClick={() => {
-                  setFormData(prev => ({
-                    ...prev,
-                    timProject: [...prev.timProject, { 
-                      nama: '', 
-                      peran: '', 
-                      outputs: [],
-                      department: selectedItem.department || '',
-                      tim: selectedItem.tim || ''
-                    }]
-                  }));
-                }}
-              >
-                + Tambah Anggota Tim
-              </Button>
-            </Card.Header>
-            <Card.Body>
+          {isCurrentUserAllowed ? (
+            <>
+              <h5 className="mb-3">Edit Monitoring</h5>
               
-              {formData.timProject.map((tim, timIndex) => (
-                <Card key={timIndex} className="mb-3 border">
-                  <Card.Body>
-                    <div className="d-flex justify-content-between align-items-center mb-3">
-                      <h6 className="mb-0">Anggota Tim #{timIndex + 1}</h6>
-                      {formData.timProject.length > 1 && (
-                        <Button
-                          variant="outline-danger"
-                          size="sm"
-                          onClick={() => {
-                            const newTimProject = formData.timProject.filter((_, idx) => idx !== timIndex);
-                            setFormData(prev => ({ ...prev, timProject: newTimProject }));
-                          }}
-                        >
-                          Hapus
-                        </Button>
-                      )}
-                    </div>
-                    
-                    <Row className="align-items-center mb-3">
-                      <Col md={4}>
-                        <Form.Group>
-                          <Form.Label>Department</Form.Label>
-                          <Form.Control
-                            type="text"
-                            value={tim.department || selectedItem.department || ''}
-                            readOnly
-                            style={{ backgroundColor: '#e9ecef' }}
-                          />
-                        </Form.Group>
-                      </Col>
-                      <Col md={4}>
-                        <Form.Group>
-                          <Form.Label>TIM</Form.Label>
-                          <Form.Control
-                            type="text"
-                            value={tim.tim || selectedItem.tim || ''}
-                            readOnly
-                            style={{ backgroundColor: '#e9ecef' }}
-                          />
-                        </Form.Group>
-                      </Col>
-                      <Col md={4}>
-                        <Form.Group>
-                          <Form.Label>PIC <span className="text-danger">*</span></Form.Label>
-                          <Form.Select
-                            value={tim.nama || ''}
-                            onChange={(e) => handleTimProjectChange(timIndex, 'nama', e.target.value)}
-                            required
-                          >
-                            <option value="">Pilih PIC...</option>
-                            {allPICs.map(pic => (
-                              <option key={pic} value={pic}>{pic}</option>
-                            ))}
-                          </Form.Select>
-                        </Form.Group>
-                      </Col>
-                    </Row>
-                    
-                    <Row className="align-items-center mb-3">
-                      <Col md={8}>
-                        <Form.Group>
-                          <Form.Control
-                            type="text"
-                            placeholder="Contoh: Developer, Analyst, Tester, Supervisor"
-                            value={tim.peran || ''}
-                            onChange={(e) => handleTimProjectChange(timIndex, 'peran', e.target.value)}
-                          />
-                        </Form.Group>
-                      </Col>
-                    </Row>
-                    
-                    <Form.Group>
-                      <div className="d-flex justify-content-between align-items-center mb-2">
-                        <Form.Label className="mb-0">Output yang Dikerjakan</Form.Label>
-                        <Button 
-                          variant="outline-info" 
-                          size="sm"
-                          onClick={() => {
-                            setEditingOutputIndex(prev => prev === timIndex ? null : timIndex);
-                          }}
-                        >
-                          {editingOutputIndex === timIndex ? 'Tutup' : 'Edit Output'}
-                        </Button>
-                      </div>
-                      
-                      {editingOutputIndex === timIndex ? (
-                        <div className="border rounded p-3 mt-2" style={{ backgroundColor: '#f8f9fa' }}>
-                          <div className="row">
-                            {OUTPUT_OPTIONS[selectedItem.department]?.map((output) => (
-                              <div key={output} className="col-md-6 mb-2">
-                                <Form.Check
-                                  type="checkbox"
-                                  id={`output-${timIndex}-${output}`}
-                                  label={output}
-                                  checked={tim.outputs?.includes(output) || false}
-                                  onChange={(e) => handleOutputChange(timIndex, output, e.target.checked)}
-                                />
-                              </div>
-                            ))}
-                          </div>
-                          
-                          <div className="d-flex justify-content-between mt-3">
-                            <Button 
-                              size="sm" 
-                              variant="outline-secondary"
-                              onClick={() => handleTimProjectChange(timIndex, 'outputs', [])}
-                            >
-                              Clear Semua Output
-                            </Button>
-                            <Button 
-                              size="sm" 
-                              variant="primary" 
-                              onClick={() => setEditingOutputIndex(null)}
-                            >
-                              Selesai
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="p-3 bg-light rounded border mt-2">
-                          <div className="mb-2">
-                            <strong>Output terpilih:</strong>
-                          </div>
-                          <div className="text-primary fw-bold mb-3" style={{ minHeight: '28px' }}>
-                            {tim.outputs && tim.outputs.length > 0 ? (
-                              <div className="d-flex flex-wrap gap-2">
-                                {tim.outputs.map((output, idx) => (
-                                  <Badge key={idx} bg="info" className="me-1 mb-1">
-                                    {output}
-                                  </Badge>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="text-muted fw-normal">Belum ada output yang dipilih</span>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </Form.Group>
-                  </Card.Body>
-                </Card>
-              ))}
-              
-              {formData.timProject.length === 0 && (
-                <Alert variant="light" className="text-center py-4">
-                  <div className="mb-2">
-                    <i className="bi bi-people fs-2 text-muted"></i>
-                  </div>
-                  <p className="mb-0">Belum ada anggota tim yang ditambahkan.</p>
-                  <p className="small text-muted">Klik "Tambah Anggota Tim" untuk menambahkan.</p>
-                </Alert>
-              )}
-            </Card.Body>
-          </Card>
-
-          <Card className="mb-4">
-            <Card.Header className="bg-light">
-              <h6 className="mb-0">Tanggal & Status</h6>
-            </Card.Header>
-            <Card.Body>
-              <Row>
-                <Col md={6}>
+              {/* SECTION KETERANGAN */}
+              <Card className="mb-4">
+                <Card.Header className="bg-light">
+                  <h6 className="mb-0">Keterangan</h6>
+                </Card.Header>
+                <Card.Body>
                   <Form.Group className="mb-3">
-                    <Form.Label>
-                      Tanggal Selesai <span className="text-danger">*</span>
-                    </Form.Label>
+                    <Form.Label>Keterangan / Catatan</Form.Label>
                     <Form.Control
-                      type="date"
-                      value={formData.tanggalSelesai}
-                      onChange={(e) => setFormData(prev => ({ ...prev, tanggalSelesai: e.target.value }))}
-                      required
+                      as="textarea"
+                      rows={4}
+                      placeholder="Tambahkan keterangan atau catatan tentang progress project..."
+                      value={formData.keterangan}
+                      onChange={(e) => setFormData(prev => ({ ...prev, keterangan: e.target.value }))}
                     />
                     <Form.Text className="text-muted">
-                      Wajib diisi untuk mengubah status project
+                      Tambahkan informasi seperti progress terbaru, kendala, atau catatan penting lainnya
                     </Form.Text>
                   </Form.Group>
-                </Col>
-                
-                <Col md={6}>
-                  <Form.Group className="mb-3">
-                    <Form.Label>
-                      Status Project
-                    </Form.Label>
-                    <Form.Select
-                      value={formData.status}
-                      onChange={handleStatusChange}
-                      disabled={!isCurrentUserAllowed || !isTanggalSelesaiFilled}
-                      className={!isTanggalSelesaiFilled ? 'bg-light' : ''}
-                    >
-                      <option value="In Progress">In Progress</option>
-                      <option value="Done">Done</option>
-                      <option value="Hold">Hold</option>
-                      <option value="Drop">Drop</option>
-                      <option value="Revisi FPP">Revisi FPP</option>
-                    </Form.Select>
-                    {!isCurrentUserAllowed && (
-                      <Form.Text className="text-warning">
-                        ❗ Hanya user dari department {selectedItem.department} yang dapat mengubah status
-                      </Form.Text>
-                    )}
-                    {!isTanggalSelesaiFilled && (
-                      <Form.Text className="text-danger">
-                        ⚠️ Harap isi tanggal selesai terlebih dahulu untuk mengubah status
-                      </Form.Text>
-                    )}
-                  </Form.Group>
-                </Col>
-              </Row>
-            </Card.Body>
-          </Card>
-          
-          {/* SECTION SUMMARY */}
-          <Card className="border-info">
-            <Card.Header className="bg-info bg-opacity-10 d-flex justify-content-between align-items-center">
-              <strong>Ringkasan Perubahan</strong>
-              <Badge bg={getStatusBadgeInfo({ status: formData.status }).color}>
-                {formData.status}
-              </Badge>
-            </Card.Header>
-            <Card.Body>
-              <Row>
-                <Col md={6}>
-                  <ul className="mb-0">
-                    <li>
-                      <strong>Tanggal Selesai:</strong> 
-                      {formData.tanggalSelesai 
-                        ? ` ${formatDate(formData.tanggalSelesai)}` 
-                        : ' Belum diisi'
-                      }
-                    </li>
-                    <li><strong>Jumlah Anggota Tim:</strong> {formData.timProject.length} orang</li>
-                    <li>
-                      <strong>Total Output:</strong> {
-                        formData.timProject.reduce((total, tim) => total + (tim.outputs?.length || 0), 0)
-                      } item
-                    </li>
-                  </ul>
-                </Col>
-                <Col md={6}>
-                  <ul className="mb-0">
-                    <li>
-                      <strong>Status:</strong> 
-                      <Badge bg={getStatusBadgeInfo({ status: formData.status }).color} className="ms-2">
-                        {formData.status}
-                      </Badge>
-                    </li>
-                    <li>
-                      <strong>Validasi:</strong> 
-                      {isTanggalSelesaiFilled ? (
-                        <Badge bg="success" className="ms-2">✓ Tanggal selesai terisi</Badge>
-                      ) : (
-                        <Badge bg="warning" className="ms-2">⚠️ Tanggal selesai belum diisi</Badge>
-                      )}
-                    </li>
-                    <li>
-                      <strong>Izin Edit:</strong> 
-                      {isCurrentUserAllowed ? (
-                        <Badge bg="success" className="ms-2">✓ User department sesuai</Badge>
-                      ) : (
-                        <Badge bg="danger" className="ms-2">✗ Hanya user {selectedItem.department}</Badge>
-                      )}
-                    </li>
-                  </ul>
-                </Col>
-              </Row>
-            </Card.Body>
-          </Card>
+                </Card.Body>
+              </Card>
+              
+              {/* SECTION TIM PROJECT & OUTPUTS */}
+              <Card className="mb-4">
+                <Card.Header className="bg-light d-flex justify-content-between align-items-center">
+                  <h6 className="mb-0">Tim Project & Outputs</h6>
+                  <Button
+                    variant="outline-primary"
+                    size="sm"
+                    onClick={() => {
+                      setFormData(prev => ({
+                        ...prev,
+                        timProject: [...prev.timProject, { 
+                          nama: '', 
+                          peran: '', 
+                          outputs: [],
+                          department: selectedItem.department || '',
+                          tim: selectedItem.tim || ''
+                        }]
+                      }));
+                    }}
+                  >
+                    + Tambah Anggota Tim
+                  </Button>
+                </Card.Header>
+                <Card.Body>
+                  
+                  {formData.timProject.map((tim, timIndex) => (
+                    <Card key={timIndex} className="mb-3 border">
+                      <Card.Body>
+                        <div className="d-flex justify-content-between align-items-center mb-3">
+                          <h6 className="mb-0">Anggota Tim #{timIndex + 1}</h6>
+                          {formData.timProject.length > 1 && (
+                            <Button
+                              variant="outline-danger"
+                              size="sm"
+                              onClick={() => {
+                                const newTimProject = formData.timProject.filter((_, idx) => idx !== timIndex);
+                                setFormData(prev => ({ ...prev, timProject: newTimProject }));
+                              }}
+                            >
+                              Hapus
+                            </Button>
+                          )}
+                        </div>
+                        
+                        <Row className="align-items-center mb-3">
+                          <Col md={4}>
+                            <Form.Group>
+                              <Form.Label>Department</Form.Label>
+                              <Form.Control
+                                type="text"
+                                value={tim.department || selectedItem.department || ''}
+                                readOnly
+                                style={{ backgroundColor: '#e9ecef' }}
+                              />
+                            </Form.Group>
+                          </Col>
+                          <Col md={4}>
+                            <Form.Group>
+                              <Form.Label>TIM</Form.Label>
+                              <Form.Control
+                                type="text"
+                                value={tim.tim || selectedItem.tim || ''}
+                                readOnly
+                                style={{ backgroundColor: '#e9ecef' }}
+                              />
+                            </Form.Group>
+                          </Col>
+                          <Col md={4}>
+                            <Form.Group>
+                              <Form.Label>PIC <span className="text-danger">*</span></Form.Label>
+                              <Form.Select
+                                value={tim.nama || ''}
+                                onChange={(e) => handleTimProjectChange(timIndex, 'nama', e.target.value)}
+                                required
+                              >
+                                <option value="">Pilih PIC...</option>
+                                {allPICs.map(pic => (
+                                  <option key={pic} value={pic}>{pic}</option>
+                                ))}
+                              </Form.Select>
+                            </Form.Group>
+                          </Col>
+                        </Row>
+                        
+                        <Row className="align-items-center mb-3">
+                          <Col md={8}>
+                            <Form.Group>
+                              <Form.Control
+                                type="text"
+                                placeholder="Contoh: Developer, Analyst, Tester, Supervisor"
+                                value={tim.peran || ''}
+                                onChange={(e) => handleTimProjectChange(timIndex, 'peran', e.target.value)}
+                              />
+                            </Form.Group>
+                          </Col>
+                        </Row>
+                        
+                        <Form.Group>
+                          <div className="d-flex justify-content-between align-items-center mb-2">
+                            <Form.Label className="mb-0">Output yang Dikerjakan</Form.Label>
+                            <Button 
+                              variant="outline-info" 
+                              size="sm"
+                              onClick={() => {
+                                setEditingOutputIndex(prev => prev === timIndex ? null : timIndex);
+                              }}
+                            >
+                              {editingOutputIndex === timIndex ? 'Tutup' : 'Edit Output'}
+                            </Button>
+                          </div>
+                          
+                          {editingOutputIndex === timIndex ? (
+                            <div className="border rounded p-3 mt-2" style={{ backgroundColor: '#f8f9fa' }}>
+                              <div className="row">
+                                {OUTPUT_OPTIONS[selectedItem.department]?.map((output) => (
+                                  <div key={output} className="col-md-6 mb-2">
+                                    <Form.Check
+                                      type="checkbox"
+                                      id={`output-${timIndex}-${output}`}
+                                      label={output}
+                                      checked={tim.outputs?.includes(output) || false}
+                                      onChange={(e) => handleOutputChange(timIndex, output, e.target.checked)}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                              
+                              <div className="d-flex justify-content-between mt-3">
+                                <Button 
+                                  size="sm" 
+                                  variant="outline-secondary"
+                                  onClick={() => handleTimProjectChange(timIndex, 'outputs', [])}
+                                >
+                                  Clear Semua Output
+                                </Button>
+                                <Button 
+                                  size="sm" 
+                                  variant="primary" 
+                                  onClick={() => setEditingOutputIndex(null)}
+                                >
+                                  Selesai
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="p-3 bg-light rounded border mt-2">
+                              <div className="mb-2">
+                                <strong>Output terpilih:</strong>
+                              </div>
+                              <div className="text-primary fw-bold mb-3" style={{ minHeight: '28px' }}>
+                                {tim.outputs && tim.outputs.length > 0 ? (
+                                  <div className="d-flex flex-wrap gap-2">
+                                    {tim.outputs.map((output, idx) => (
+                                      <Badge key={idx} bg="info" className="me-1 mb-1">
+                                        {output}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span className="text-muted fw-normal">Belum ada output yang dipilih</span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </Form.Group>
+                      </Card.Body>
+                    </Card>
+                  ))}
+                  
+                  {formData.timProject.length === 0 && (
+                    <Alert variant="light" className="text-center py-4">
+                      <div className="mb-2">
+                        <i className="bi bi-people fs-2 text-muted"></i>
+                      </div>
+                      <p className="mb-0">Belum ada anggota tim yang ditambahkan.</p>
+                      <p className="small text-muted">Klik "Tambah Anggota Tim" untuk menambahkan.</p>
+                    </Alert>
+                  )}
+                </Card.Body>
+              </Card>
+
+              <Card className="mb-4">
+                <Card.Header className="bg-light">
+                  <h6 className="mb-0">Tanggal & Status</h6>
+                </Card.Header>
+                <Card.Body>
+                  <Row>
+                    <Col md={6}>
+                      <Form.Group className="mb-3">
+                        <Form.Label>
+                          Tanggal Selesai <span className="text-danger">*</span>
+                        </Form.Label>
+                        <Form.Control
+                          type="date"
+                          value={formData.tanggalSelesai}
+                          onChange={(e) => setFormData(prev => ({ ...prev, tanggalSelesai: e.target.value }))}
+                          required
+                        />
+                        <Form.Text className="text-muted">
+                          Wajib diisi untuk mengubah status project
+                        </Form.Text>
+                      </Form.Group>
+                    </Col>
+                    
+                    <Col md={6}>
+                      <Form.Group className="mb-3">
+                        <Form.Label>
+                          Status Project
+                        </Form.Label>
+                        <Form.Select
+                          value={formData.status}
+                          onChange={handleStatusChange}
+                          disabled={!isTanggalSelesaiFilled}
+                          className={!isTanggalSelesaiFilled ? 'bg-light' : ''}
+                        >
+                          <option value="In Progress">In Progress</option>
+                          <option value="Done">Done</option>
+                          <option value="Hold">Hold</option>
+                          <option value="Drop">Drop</option>
+                          <option value="Revisi FPP">Revisi FPP</option>
+                        </Form.Select>
+                        {!isTanggalSelesaiFilled && (
+                          <Form.Text className="text-danger">
+                            ⚠️ Harap isi tanggal selesai terlebih dahulu untuk mengubah status
+                          </Form.Text>
+                        )}
+                      </Form.Group>
+                    </Col>
+                  </Row>
+                </Card.Body>
+              </Card>
+              
+              {/* SECTION SUMMARY */}
+              <Card className="border-info">
+                <Card.Header className="bg-info bg-opacity-10 d-flex justify-content-between align-items-center">
+                  <strong>Ringkasan Perubahan</strong>
+                  <Badge bg={getStatusBadgeInfo({ status: formData.status }).color}>
+                    {formData.status}
+                  </Badge>
+                </Card.Header>
+                <Card.Body>
+                  <Row>
+                    <Col md={6}>
+                      <ul className="mb-0">
+                        <li>
+                          <strong>Tanggal Selesai:</strong> 
+                          {formData.tanggalSelesai 
+                            ? ` ${formatDate(formData.tanggalSelesai)}` 
+                            : ' Belum diisi'
+                          }
+                        </li>
+                        <li><strong>Jumlah Anggota Tim:</strong> {formData.timProject.length} orang</li>
+                        <li>
+                          <strong>Total Output:</strong> {
+                            formData.timProject.reduce((total, tim) => total + (tim.outputs?.length || 0), 0)
+                          } item
+                        </li>
+                      </ul>
+                    </Col>
+                    <Col md={6}>
+                      <ul className="mb-0">
+                        <li>
+                          <strong>Status:</strong> 
+                          <Badge bg={getStatusBadgeInfo({ status: formData.status }).color} className="ms-2">
+                            {formData.status}
+                          </Badge>
+                        </li>
+                        <li>
+                          <strong>Validasi:</strong> 
+                          {isTanggalSelesaiFilled ? (
+                            <Badge bg="success" className="ms-2">✓ Tanggal selesai terisi</Badge>
+                          ) : (
+                            <Badge bg="warning" className="ms-2">⚠️ Tanggal selesai belum diisi</Badge>
+                          )}
+                        </li>
+                      </ul>
+                    </Col>
+                  </Row>
+                </Card.Body>
+              </Card>
+            </>
+          ) : (
+            <Alert variant="info" className="text-center py-4">
+              <i className="bi bi-eye fs-2 text-info"></i>
+              <h5 className="mt-3">Mode View Only</h5>
+              <p className="mb-0">Anda hanya dapat melihat data project ini karena bukan dari department terkait.</p>
+            </Alert>
+          )}
         </Modal.Body>
         <Modal.Footer>
           <Button 
@@ -1998,22 +2082,24 @@ function Monitoring() {
             }}
             disabled={loading}
           >
-            Batal
+            Tutup
           </Button>
-          <Button 
-            variant="primary" 
-            onClick={handleSubmitUpdate}
-            disabled={loading || !isTanggalSelesaiFilled || !isCurrentUserAllowed}
-          >
-            {loading ? (
-              <>
-                <Spinner size="sm" animation="border" className="me-2" />
-                Proses...
-              </>
-            ) : (
-              'Simpan Perubahan'
-            )}
-          </Button>
+          {isCurrentUserAllowed && (
+            <Button 
+              variant="primary" 
+              onClick={handleSubmitUpdate}
+              disabled={loading || !isTanggalSelesaiFilled}
+            >
+              {loading ? (
+                <>
+                  <Spinner size="sm" animation="border" className="me-2" />
+                  Proses...
+                </>
+              ) : (
+                'Simpan Perubahan'
+              )}
+            </Button>
+          )}
         </Modal.Footer>
       </Modal>
     );
@@ -2039,6 +2125,11 @@ function Monitoring() {
       <div className="d-flex justify-content-between align-items-center mb-4">
         <div>
           <div className="h3 fw-semibold fs-5">Monitoring Project</div>
+          {userDepartment && (
+            <div className="text-muted small">
+              Filter berdasarkan department: <Badge bg="info">{userDepartment}</Badge>
+            </div>
+          )}
         </div>
         <div className="d-flex gap-2">
           <Button 
