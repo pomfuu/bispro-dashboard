@@ -104,69 +104,116 @@ function Draft() {
     }, 3000);
   };
 
-  // ✅ PERBAIKAN UTAMA: Fungsi handleEditDraft
   const handleEditDraft = (draft) => {
     console.log('✏️ Editing draft:', {
       id: draft.id,
       noFpp: draft.noFpp,
-      timProject: draft.timProject // Debug timProject data
+      timProject: draft.timProject
     });
     
     try {
-      // Pastikan timProject memiliki field tim
+      // Pastikan semua data terstruktur dengan benar
       const processedTimProject = Array.isArray(draft.timProject) 
         ? draft.timProject.map(tim => ({
             department: tim.department || '',
-            tim: tim.tim || '', // PASTIKAN FIELD TIM ADA
+            tim: tim.tim || '', 
             pic: tim.pic || '',
             outputs: Array.isArray(tim.outputs) ? tim.outputs : []
           }))
         : [{ department: '', tim: '', pic: '', outputs: [] }];
+      
+      // Pastikan rencanaPenugasan lengkap
+      const processedRencanaPenugasan = Array.isArray(draft.rencanaPenugasan) 
+        ? draft.rencanaPenugasan 
+        : Array(6).fill().map(() => ({ keterangan: '', tglTarget: '' }));
+      
+      // Pastikan parafData lengkap
+      const processedParafData = Array.isArray(draft.parafData) && draft.parafData.length >= 3
+        ? draft.parafData
+        : [
+            {
+              pejabat: 'PEJABAT BERWENANG BUSINESS PROCESS & ANALYST',
+              namaPejabat: '(Nama Pejabat)',
+              jabatan: 'Business Process & Analyst Division Head',
+              tanggal: '',
+              keterangan: ''
+            },
+            {
+              pejabat: 'PEJABAT BERWENANG UNIT/PIHAK YANG TERLIBAT',
+              namaPejabat: '(Nama Pejabat)',
+              jabatan: '',
+              tanggal: '',
+              keterangan: ''
+            },
+            {
+              pejabat: 'PEJABAT BERWENANG UNIT/PIHAK YANG TERLIBAT',
+              namaPejabat: '(Nama Pejabat)',
+              jabatan: '',
+              tanggal: '',
+              keterangan: ''
+            }
+          ];
       
       const editData = {
         isEditMode: true,
         draftId: draft.id,
         fppEntryId: draft.fppEntryId || null,
         
+        // Master Project
         masterProjectType: draft.masterProjectType || 'noProject',
         masterProjectNumber: draft.masterProjectNumber || '',
         masterProjectName: draft.masterProjectName || '',
+        skalaProject: draft.skalaProject || '', // ✅ TAMBAHKAN
+        
+        // Project Departments (checkbox)
+        projectDepartments: Array.isArray(draft.projectDepartments) 
+          ? draft.projectDepartments 
+          : [], // ✅ TAMBAHKAN
+        
+        // PIC Data
         department: draft.department || '',
         tim: draft.tim || '',
         pic: draft.pic || '',
+        
+        // FPP Data
         noFpp: draft.noFpp || '',
         judulFpp: draft.judulFpp || '',
         jenisProject: draft.jenisProject || '',
         jenisProjectOther: draft.jenisProjectOther || '',
         pirType: draft.pirType || 'Proses',
+        
+        // Detail Penugasan
         latarBelakang: draft.latarBelakang || '',
         tujuan: draft.tujuan || '',
         scope: draft.scope || '',
         unitKerjaTerkait: draft.unitKerjaTerkait || '',
-        approvalDate: draft.approvalDate || '',
         
-        rencanaPenugasan: Array.isArray(draft.rencanaPenugasan) 
-          ? draft.rencanaPenugasan 
-          : [
-              { keterangan: '', tglTarget: '' },
-              { keterangan: '', tglTarget: '' },
-              { keterangan: '', tglTarget: '' },
-              { keterangan: '', tglTarget: '' },
-              { keterangan: '', tglTarget: '' },
-              { keterangan: '', tglTarget: '' }
-            ],
+        // Rencana Penugasan (gunakan processed)
+        rencanaPenugasan: processedRencanaPenugasan,
         
-        // Gunakan processedTimProject yang sudah dipastikan ada field tim
+        // Tim Project (gunakan processed)
         timProject: processedTimProject,
         
+        // Approval
+        approvalDate: draft.approvalDate || '',
+        
+        // Paraf Data (gunakan processed)
+        parafData: processedParafData,
+        
+        // Form Metadata
         formNumber: draft.formNumber || '766.01/FORM/2025',
         tanggalDraft: draft.tanggalDraft || new Date().toISOString().split('T')[0]
       };
       
-      console.log('📤 Prepared edit data with timProject:', processedTimProject);
+      console.log('📤 Prepared edit data:', {
+        projectDepartments: editData.projectDepartments,
+        timProject: editData.timProject,
+        parafData: editData.parafData
+      });
       
       sessionStorage.setItem('editFppDraft', JSON.stringify(editData));
       
+      // ✅ NAVIGASI KE ROUTE YANG BENAR
       navigate('/input-unit');
       
     } catch (error) {

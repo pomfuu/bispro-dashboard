@@ -4,20 +4,23 @@ import { BrowserRouter as Router, Routes, Route, Navigate, Link, useLocation } f
 import { Nav, Button, Container, Modal, Form, Alert, Spinner } from 'react-bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import LoginPage from './Pages/LoginPage'; // Import LoginPage
+import LoginPage from './Pages/LoginPage';
 import Master from './Pages/Master';
 import InputByUnit from './Pages/InputByUnit';
 import Draft from './Pages/Draft';
 import Monitoring from './Pages/Monitoring';
 import Dashboard from './Pages/Dashboard';
 import logo from './Assets/logo.png';
+
 const fontLink = document.createElement("link");
 fontLink.href = "https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;600;700&display=swap";
 fontLink.rel = "stylesheet";
 document.head.appendChild(fontLink);
 
-function ProtectedRoute({ children }) {
+// Component untuk auth check - harus di dalam AuthProvider
+function AuthChecker({ children }) {
   const { user, loading } = useAuth();
+  
   if (loading) {
     return (
       <Container className="d-flex justify-content-center align-items-center" style={{ height: '100vh' }}>
@@ -29,9 +32,6 @@ function ProtectedRoute({ children }) {
     );
   }
   
-  if (!user || !user.isLoggedIn) {
-    return <Navigate to="/login" />;
-  }
   return children;
 }
 
@@ -40,6 +40,7 @@ function ProtectedMaster() {
   const [showModal, setShowModal] = useState(true);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  
   const handleSubmit = (e) => {
     e.preventDefault();
     if (password === 'inputmaster') {
@@ -96,18 +97,20 @@ function ProtectedMaster() {
 function MainLayout({ children }) {
   const location = useLocation();
   const { user, logout } = useAuth();
+  
   const isActive = (path) => {
     return location.pathname === path;
   };
+  
   const handleLogout = () => {
     if (window.confirm('Apakah Anda yakin ingin logout?')) {
       logout();
-      window.location.href = '/login';
     }
   };
 
   return (
     <div className="d-flex" style={{ minHeight: '100vh', letterSpacing: '-0.35px' }}>
+      {/* Sidebar */}
       <div 
         className="text-dark position-fixed" 
         style={{ 
@@ -117,13 +120,13 @@ function MainLayout({ children }) {
           zIndex: 1000
         }}
       >
-      <div className="p-3 text-center">
-        <img 
-          src={logo} 
-          alt="BisPro Logo" 
-          style={{ width: "200px", objectFit: "contain" }}
-        />
-      </div>
+        <div className="p-3 text-center">
+          <img 
+            src={logo} 
+            alt="BisPro Logo" 
+            style={{ width: "200px", objectFit: "contain" }}
+          />
+        </div>
 
         <div className="p-3">
           <div className="d-flex align-items-center">
@@ -137,7 +140,7 @@ function MainLayout({ children }) {
           <Button 
             variant="primary" 
             size="md" 
-            className="w-100 mt-3 text-white font-weight-bold "
+            className="w-100 mt-3 text-white font-weight-bold"
             onClick={handleLogout}
           >
             Logout
@@ -257,6 +260,7 @@ function MainLayout({ children }) {
         </Nav>
       </div>
 
+      {/* Main Content */}
       <div 
         className="flex-grow-1" 
         style={{ 
@@ -271,32 +275,72 @@ function MainLayout({ children }) {
   );
 }
 
+// Main App Component yang berada di DALAM AuthProvider
+function AppContent() {
+  const { user, loading } = useAuth();
+  
+  if (loading) {
+    return (
+      <Container className="d-flex justify-content-center align-items-center" style={{ height: '100vh' }}>
+        <div className="text-center">
+          <Spinner animation="border" variant="primary" />
+          <p className="mt-3">Memuat aplikasi...</p>
+        </div>
+      </Container>
+    );
+  }
+  
+  return (
+    <Router>
+      <div style={{ fontFamily: "Open Sans, sans-serif" }}>
+        {!user ? (
+          // User belum login - tampilkan LoginPage
+          <Routes>
+            <Route path="*" element={<LoginPage />} />
+          </Routes>
+        ) : (
+          // User sudah login - tampilkan aplikasi utama
+          <Routes>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/master" element={
+              <MainLayout>
+                <ProtectedMaster />
+              </MainLayout>
+            } />
+            <Route path="/input-unit" element={
+              <MainLayout>
+                <InputByUnit />
+              </MainLayout>
+            } />
+            <Route path="/draft" element={
+              <MainLayout>
+                <Draft />
+              </MainLayout>
+            } />
+            <Route path="/monitoring" element={
+              <MainLayout>
+                <Monitoring />
+              </MainLayout>
+            } />
+            <Route path="/dashboard" element={
+              <MainLayout>
+                <Dashboard />
+              </MainLayout>
+            } />
+            {/* Catch all - redirect to dashboard */}
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        )}
+      </div>
+    </Router>
+  );
+}
+
+// Main App wrapper - AuthProvider harus di level paling atas
 function App() {
   return (
     <AuthProvider>
-      <div style={{ fontFamily: "Open Sans, sans-serif" }}>
-        <Router>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/" element={<Navigate to="/login" replace />} />
-            
-            {/* Protected Routes */}
-            <Route path="/*" element={
-              <ProtectedRoute>
-                <MainLayout>
-                  <Routes>
-                    <Route path="/master" element={<ProtectedMaster />} />
-                    <Route path="/input-unit" element={<InputByUnit />} />
-                    <Route path="/draft" element={<Draft />} />
-                    <Route path="/monitoring" element={<Monitoring />} />
-                    <Route path="/dashboard" element={<Dashboard />} />
-                  </Routes>
-                </MainLayout>
-              </ProtectedRoute>
-            } />
-          </Routes>
-        </Router>
-      </div>
+      <AppContent />
     </AuthProvider>
   );
 }

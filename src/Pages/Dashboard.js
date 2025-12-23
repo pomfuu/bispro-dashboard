@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Container, Row, Col, Card, Badge, Button, 
-  Form, Table, Spinner, Alert, Modal, InputGroup, Pagination
+  Form, Table, Spinner, Alert, Modal, InputGroup, Pagination, Tab, Tabs
 } from 'react-bootstrap';
 import { db } from '../firebase';
 import { collection, getDocs, onSnapshot } from 'firebase/firestore';
@@ -11,7 +11,6 @@ import { useAuth } from '../context/AuthContext';
 import * as XLSX from 'xlsx';
 import { deleteDoc, doc } from 'firebase/firestore';
 import { FaFileExcel, FaSearch } from 'react-icons/fa';
-
 
 // Komponen KPI Card yang bisa diklik
 const KpiCard = ({ title, value, variant = 'primary', icon, loading, onClick, isActive }) => {
@@ -159,8 +158,8 @@ const calculateDuration = (fpp) => {
   }
 };
 
-// Komponen Detail Modal
-const DetailModal = ({ show, handleClose, fppData }) => {
+// Komponen Detail Modal yang sama dengan Monitoring.js
+const DetailModal = ({ show, handleClose, fppData, onDelete, isHead, hasAccessToFpp }) => {
   if (!fppData) return null;
 
   const formatDate = (dateString) => {
@@ -256,184 +255,303 @@ const DetailModal = ({ show, handleClose, fppData }) => {
     );
   };
 
+
+
+  // Helper untuk render tim project
+  const renderTimProject = () => {
+    if (!fppData.timProject || !Array.isArray(fppData.timProject)) return null;
+    
+    return (
+      <Card className="mb-3">
+        <Card.Header className="bg-secondary text-white">
+          <strong>Tim Project</strong>
+        </Card.Header>
+        <Card.Body>
+          <div className="table-responsive">
+            <Table striped bordered size="sm">
+              <thead>
+                <tr>
+                  <th style={{ width: '50px' }}>No</th>
+                  <th>Department</th>
+                  <th>TIM</th>
+                  <th>PIC</th>
+                  <th>Output</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fppData.timProject.map((tim, index) => (
+                  <tr key={index}>
+                    <td>{index + 1}</td>
+                    <td>{tim.department || '-'}</td>
+                    <td>{tim.tim || '-'}</td>
+                    <td>{tim.pic || '-'}</td>
+                    <td>{(tim.outputs || []).join(', ') || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </div>
+        </Card.Body>
+      </Card>
+    );
+  };
+
+  // Helper untuk render rencana penugasan
+  const renderRencanaPenugasan = () => {
+    if (!fppData.rencanaPenugasan || !Array.isArray(fppData.rencanaPenugasan)) return null;
+    
+    return (
+      <Card className="mb-3">
+        <Card.Header className="bg-warning text-dark">
+          <strong>Rencana Penugasan</strong>
+        </Card.Header>
+        <Card.Body>
+          <div className="table-responsive">
+            <Table striped bordered size="sm">
+              <thead>
+                <tr>
+                  <th style={{ width: '50px' }}>No</th>
+                  <th>Keterangan</th>
+                  <th style={{ width: '150px' }}>Target</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fppData.rencanaPenugasan.map((item, index) => (
+                  <tr key={index}>
+                    <td>{index + 1}</td>
+                    <td>{item.keterangan || '-'}</td>
+                    <td>{formatDate(item.tglTarget)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </div>
+        </Card.Body>
+      </Card>
+    );
+  };
+
   return (
-    <Modal show={show} onHide={handleClose} size="lg">
-      <Modal.Header closeButton>
-        <Modal.Title>Detail FPP</Modal.Title>
+    <Modal show={show} onHide={handleClose} size="xl" fullscreen="lg-down" scrollable>
+      <Modal.Header closeButton className="bg-primary text-white">
+        <Modal.Title>
+          <div className="d-flex align-items-center">
+            <span>Detail FPP - {fppData.noFpp || '-'}</span>
+            <Badge bg={
+              fppData.status === 'In Progress' || fppData.status === 'submitted' ? 'warning' :
+              fppData.status === 'Selesai' || fppData.status === 'Done' || fppData.status === 'Achieve' ? 'success' :
+              fppData.status === 'Hold' ? 'secondary' :
+              fppData.status === 'Drop' ? 'danger' :
+              fppData.status === 'Revisi FPP' ? 'info' : 'light'
+            } className="ms-2">
+              {fppData.status === 'submitted' ? 'In Progress' : fppData.status || 'In Progress'}
+              {fppData.doneChecklist && ' ✓'}
+            </Badge>
+          </div>
+        </Modal.Title>
       </Modal.Header>
-      <Modal.Body>
-        {/* Master Project Info */}
-        <Card className="mb-3">
-          <Card.Header className="bg-primary text-white">
-            <strong>Master Project</strong>
-          </Card.Header>
-          <Card.Body>
+      <Modal.Body style={{ maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' }}>
+        <Tabs defaultActiveKey="info" className="mb-3">
+          <Tab eventKey="info" title="Informasi Utama">
             <Row>
               <Col md={6}>
-                <p><strong>No. Project/FPP Induk:</strong><br />
-                <Badge bg="info">{fppData.masterProjectNumber || '-'}</Badge></p>
+                <Card className="mb-3">
+                  <Card.Header className="bg-primary text-white">
+                    <strong>Master Project</strong>
+                  </Card.Header>
+                  <Card.Body>
+                    <table className="table table-sm">
+                      <tbody>
+                        <tr>
+                          <td style={{ width: '200px' }}><strong>No. Project/FPP Induk:</strong></td>
+                          <td><Badge bg="info">{fppData.masterProjectNumber || '-'}</Badge></td>
+                        </tr>
+                        <tr>
+                          <td><strong>Judul Project:</strong></td>
+                          <td>{fppData.masterProjectName || '-'}</td>
+                        </tr>
+                        <tr>
+                          <td><strong>Skala Project:</strong></td>
+                          <td>
+                            <Badge bg={
+                              fppData.skalaProject === 'Small' ? 'success' :
+                              fppData.skalaProject === 'Medium' ? 'warning' :
+                              fppData.skalaProject === 'Large' ? 'danger' : 'secondary'
+                            }>
+                              {fppData.skalaProject || '-'}
+                            </Badge>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td><strong>Departemen Project:</strong></td>
+                          <td>
+                            {fppData.projectDepartments ? 
+                              (Array.isArray(fppData.projectDepartments) ? 
+                                fppData.projectDepartments.join(', ') : fppData.projectDepartments) 
+                              : '-'}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td><strong>Tahun Project:</strong></td>
+                          <td>{fppData.tahunProject || '-'}</td>
+                        </tr>
+                        <tr>
+                          <td><strong>Kategori Project:</strong></td>
+                          <td>{fppData.kategoriProject || '-'}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </Card.Body>
+                </Card>
               </Col>
               <Col md={6}>
-                <p><strong>Judul Project:</strong><br />
-                {fppData.masterProjectName || '-'}</p>
+                <Card className="mb-3">
+                  <Card.Header className="bg-success text-white">
+                    <strong>FPP Details</strong>
+                  </Card.Header>
+                  <Card.Body>
+                    <table className="table table-sm">
+                      <tbody>
+                        <tr>
+                          <td style={{ width: '200px' }}><strong>No. FPP:</strong></td>
+                          <td><Badge bg="dark">{fppData.noFpp || '-'}</Badge></td>
+                        </tr>
+                        <tr>
+                          <td><strong>Judul FPP:</strong></td>
+                          <td>{fppData.judulFpp || '-'}</td>
+                        </tr>
+                        <tr>
+                          <td><strong>Departemen:</strong></td>
+                          <td><Badge bg="primary">{fppData.department || '-'}</Badge></td>
+                        </tr>
+                        <tr>
+                          <td><strong>Tim:</strong></td>
+                          <td>{fppData.tim || '-'}</td>
+                        </tr>
+                        <tr>
+                          <td><strong>PIC:</strong></td>
+                          <td>{fppData.pic || '-'}</td>
+                        </tr>
+                        <tr>
+                          <td><strong>Jenis Project:</strong></td>
+                          <td>{fppData.jenisProjectResolved || fppData.jenisProject || '-'}</td>
+                        </tr>
+                        <tr>
+                          <td><strong>PIR Type:</strong></td>
+                          <td>{fppData.pirType || '-'}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </Card.Body>
+                </Card>
               </Col>
             </Row>
-          </Card.Body>
-        </Card>
 
-        {/* FPP Info */}
-        <Card className="mb-3">
-          <Card.Header className="bg-success text-white">
-            <strong>FPP Details</strong>
-          </Card.Header>
-          <Card.Body>
-            <Row>
-              <Col md={4}>
-                <p><strong>Departemen:</strong><br />
-                <Badge bg="primary">{fppData.department || '-'}</Badge></p>
-              </Col>
-              <Col md={4}>
-                <p><strong>Tim:</strong><br />
-                {fppData.tim || '-'}</p>
-              </Col>
-              <Col md={4}>
-                <p><strong>PIC:</strong><br />
-                {fppData.pic || '-'}</p>
-              </Col>
-            </Row>
-            <Row>
-              <Col md={6}>
-                <p><strong>No. FPP:</strong><br />
-                <Badge bg="dark">{fppData.noFpp || '-'}</Badge></p>
-              </Col>
-              <Col md={6}>
-                <p><strong>Judul FPP:</strong><br />
-                {fppData.judulFpp || '-'}</p>
-              </Col>
-            </Row>
-            <Row>
-              <Col md={6}>
-                <p><strong>Jenis Project:</strong><br />
-                {fppData.jenisProjectResolved || fppData.jenisProject || '-'}</p>
-              </Col>
-              <Col md={6}>
-                <p><strong>Status:</strong><br />
-                <Badge bg={
-                  fppData.status === 'In Progress' || fppData.status === 'submitted' ? 'warning' :
-                  fppData.status === 'Done' || fppData.status === 'Selesai' || fppData.status === 'Achieve' ? 'success' :
-                  fppData.status === 'Hold' ? 'secondary' :
-                  fppData.status === 'Drop' ? 'danger' :
-                  fppData.status === 'Hutang Collab' ? 'info' : 'light'
-                }>
-                  {fppData.status === 'submitted' ? 'In Progress' : fppData.status || 'Not Yet'}
-                  {fppData.doneChecklist && ' ✓'}
-                </Badge></p>
-              </Col>
-            </Row>
-          </Card.Body>
-        </Card>
+            {/* Timeline */}
+            <Card className="mb-3">
+              <Card.Header className="bg-info text-white">
+                <strong>Timeline</strong>
+              </Card.Header>
+              <Card.Body>
+                <Row>
+                  <Col md={4}>
+                    <div className="text-center p-3 border rounded bg-light">
+                      <div className="small text-muted">Tanggal Approval</div>
+                      <div className="fw-bold">{formatDate(fppData.approvalDate)}</div>
+                    </div>
+                  </Col>
+                  <Col md={4}>
+                    <div className="text-center p-3 border rounded bg-light">
+                      <div className="small text-muted">Tanggal Start</div>
+                      <div className="fw-bold">{formatDate(fppData.approvalDate)}</div>
+                    </div>
+                  </Col>
+                  <Col md={4}>
+                    <div className="text-center p-3 border rounded bg-light">
+                      <div className="small text-muted">Tanggal Selesai</div>
+                      <div className="fw-bold">{formatDate(fppData.tanggalSelesai) || '-'}</div>
+                    </div>
+                  </Col>
+                </Row>
+                <div className="mt-3">
+                  <strong>Keterangan Status:</strong> {fppData.keterangan || '-'}
+                </div>
+              </Card.Body>
+            </Card>
+          </Tab>
 
-        {/* Done Checklist */}
-        {renderChecklistItems()}
+          <Tab eventKey="details" title="Detail Penugasan">
+            <Card className="mb-3">
+              <Card.Header className="bg-info text-white">
+                <strong>Detail Penugasan</strong>
+              </Card.Header>
+              <Card.Body>
+                <Row>
+                  <Col md={12} className="mb-3">
+                    <strong>Latar Belakang:</strong>
+                    <div className="p-2 bg-light rounded mt-1">
+                      {fppData.latarBelakang || '-'}
+                    </div>
+                  </Col>
+                  <Col md={12} className="mb-3">
+                    <strong>Tujuan:</strong>
+                    <div className="p-2 bg-light rounded mt-1">
+                      {fppData.tujuan || '-'}
+                    </div>
+                  </Col>
+                  <Col md={12} className="mb-3">
+                    <strong>Scope:</strong>
+                    <div className="p-2 bg-light rounded mt-1">
+                      {fppData.scope || '-'}
+                    </div>
+                  </Col>
+                  <Col md={12} className="mb-3">
+                    <strong>Unit Kerja Terkait:</strong>
+                    <div className="p-2 bg-light rounded mt-1">
+                      {fppData.unitKerjaTerkait || '-'}
+                    </div>
+                  </Col>
+                </Row>
+              </Card.Body>
+            </Card>
+          </Tab>
 
-        {/* Rencana Penugasan */}
-        {fppData.rencanaPenugasan && fppData.rencanaPenugasan.length > 0 && (
-          <Card className="mb-3">
-            <Card.Header className="bg-info text-white">
-              <strong>Rencana Penugasan</strong>
-            </Card.Header>
-            <Card.Body>
-              <Table striped bordered size="sm">
-                <thead>
-                  <tr>
-                    <th>No</th>
-                    <th>Keterangan</th>
-                    <th>Target</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {fppData.rencanaPenugasan.map((item, index) => (
-                    <tr key={index}>
-                      <td>{index + 1}</td>
-                      <td>{item.keterangan || '-'}</td>
-                      <td>{formatDate(item.tglTarget)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </Card.Body>
-          </Card>
-        )}
+          <Tab eventKey="timeline" title="Timeline & Rencana">
+            {renderRencanaPenugasan()}
+          </Tab>
 
-        {/* Tim Project */}
-        {fppData.timProject && fppData.timProject.length > 0 && (
-          <Card className="mb-3">
-            <Card.Header className="bg-warning text-dark">
-              <strong>Tim Project</strong>
-            </Card.Header>
-            <Card.Body>
-              <Table striped bordered size="sm">
-                <thead>
-                  <tr>
-                    <th>No</th>
-                    <th>Department</th>
-                    <th>TIM</th>
-                    <th>PIC</th>
-                    <th>Output</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {fppData.timProject.map((tim, index) => (
-                    <tr key={index}>
-                      <td>{index + 1}</td>
-                      <td>{tim.department || '-'}</td>
-                      <td>{tim.tim || '-'}</td>
-                      <td>{tim.pic || '-'}</td>
-                      <td>{(tim.outputs || []).join(', ') || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </Card.Body>
-          </Card>
-        )}
+          <Tab eventKey="team" title="Tim & Output">
+            {renderTimProject()}
+            {/* {renderUraianPekerjaan()} */}
+          </Tab>
 
-        {/* Dates Info */}
-        <Card>
-          <Card.Header className="bg-secondary text-white">
-            <strong>Timeline</strong>
-          </Card.Header>
-          <Card.Body>
-            <Row>
-              <Col md={4}>
-                <p><strong>Tanggal Approval:</strong><br />
-                {formatDate(fppData.approvalDate)}</p>
-              </Col>
-              <Col md={4}>
-                <p><strong>Tanggal Start:</strong><br />
-                {formatDate(fppData.approvalDate)}</p>
-              </Col>
-              <Col md={4}>
-                <p><strong>Tanggal Selesai:</strong><br />
-                {formatDate(fppData.tanggalSelesai) || '-'}</p>
-              </Col>
-            </Row>
-            <Row>
-              <Col md={12}>
-                <p><strong>Keterangan:</strong><br />
-                {fppData.keterangan || '-'}</p>
-              </Col>
-            </Row>
-          </Card.Body>
-        </Card>
+          <Tab eventKey="checklist" title="Done Checklist">
+            {renderChecklistItems()}
+          </Tab>
+        </Tabs>
       </Modal.Body>
-      <Modal.Footer>
-        <Button variant="secondary" onClick={handleClose}>
-          Tutup
-        </Button>
-        <Button variant="primary" as={Link} to="/monitoring">
-          Ke Halaman Monitoring
-        </Button>
+      <Modal.Footer className="d-flex justify-content-between">
+        <div>
+          <Button variant="secondary" onClick={handleClose}>
+            Tutup
+          </Button>
+          <Button variant="outline-primary" as={Link} to="/monitoring" className="ms-2">
+            Ke Halaman Monitoring
+          </Button>
+        </div>
+        {(isHead || hasAccessToFpp(fppData)) && (
+          <Button 
+            variant="outline-danger" 
+            onClick={() => {
+              if (window.confirm(`Apakah Anda yakin ingin menghapus FPP "${fppData.noFpp}"?`)) {
+                onDelete(fppData.id, fppData.masterProjectNumber, fppData);
+                handleClose();
+              }
+            }}
+          >
+            Delete FPP
+          </Button>
+        )}
       </Modal.Footer>
     </Modal>
   );
@@ -460,6 +578,7 @@ function Dashboard() {
     target: '',
     tim: '',
     status: '',
+    skalaProject: '',
     search: '',
     department: ''
   });
@@ -471,33 +590,67 @@ function Dashboard() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 30;
   
-  // Cek apakah user adalah Head
-  const isHead = user?.role === 'head' || user?.isHead;
+  // Cek apakah user adalah Head (password: inputmaster)
+  const isHead = user?.role === 'head' || user?.isHead || user?.userType === 'head';
   
-  // Get user's full TIM format
-  const getUserFullTim = () => {
+  // Get user's department untuk filter access
+  const getUserDepartment = () => {
     if (!user) return '';
-    if (isHead) return 'HEAD';
-    
-    // Format: "DPA-Akuisisi"
-    return `${user.department || ''}-${user.tim || ''}`;
+    return user.department || '';
   };
 
-  const userFullTim = getUserFullTim();
+  const userDepartment = getUserDepartment();
 
-  // Debug info
-  useEffect(() => {
-    console.log('=== DASHBOARD DEBUG INFO ===');
-    console.log('User object:', user);
-    console.log('User full tim:', userFullTim);
-    console.log('Is Head?', isHead);
-    console.log('===========================');
-  }, [user, userFullTim, isHead]);
+  // ========== FUNGSI PERBAIKAN: FILTER BERDASARKAN PROJECT DEPARTMENTS ==========
+  
+  // Fungsi untuk memeriksa apakah user memiliki akses ke FPP berdasarkan Project Departments
+  const hasAccessToFpp = (fpp) => {
+    if (!user) return false;
+    
+    // HEAD bisa akses semua
+    if (isHead) {
+      return true;
+    }
+    
+    // User biasa - cek akses berdasarkan Project Departments
+    if (!fpp.projectDepartments) {
+      return false;
+    }
+    
+    // Format projectDepartments menjadi array jika string
+    let projectDepts = [];
+    if (Array.isArray(fpp.projectDepartments)) {
+      projectDepts = fpp.projectDepartments.map(dept => dept.toUpperCase());
+    } else if (typeof fpp.projectDepartments === 'string') {
+      projectDepts = fpp.projectDepartments
+        .split(',')
+        .map(dept => dept.trim().toUpperCase())
+        .filter(dept => dept);
+    }
+    
+    // Cek apakah user department ada dalam projectDepartments
+    const userDeptUpper = userDepartment.toUpperCase();
+    return projectDepts.includes(userDeptUpper);
+  };
+
+  // Fungsi untuk memfilter data berdasarkan akses user
+  const filterByUserAccess = (data) => {
+    if (isHead) {
+      return data || [];
+    }
+    
+    if (!data || data.length === 0) {
+      return [];
+    }
+    
+    // User biasa hanya bisa melihat data yang terkait dengan mereka berdasarkan Project Departments
+    return data.filter(fpp => hasAccessToFpp(fpp));
+  };
+
+  // ========== END PERBAIKAN ==========
 
   // Fungsi untuk grouping data
   const groupByMasterProject = (data) => {
-    console.log('Grouping data, length:', data?.length);
-    
     if (!data || data.length === 0) return [];
     
     const grouped = {};
@@ -527,159 +680,15 @@ function Dashboard() {
       grouped[masterProjectNumber].fppEntries.push(fpp);
     });
     
-    console.log('Grouped result:', Object.values(grouped).length);
     return Object.values(grouped);
   };
 
-  // ========== FUNGSI PERBAIKAN: FILTER BERDASARKAN AKSES USER ==========
-  
-  // Fungsi untuk memeriksa apakah user memiliki akses ke FPP
-  const hasAccessToFpp = (fpp) => {
-    if (!user) return false;
+  // Setup real-time listener
+  useEffect(() => {
+    let unsubscribe = null;
     
-    // HEAD bisa akses semua
-    if (isHead) {
-      return true;
-    }
-    
-    // User biasa - cek akses berdasarkan PIC utama dan tim project
-    console.log('Checking access for FPP:', fpp.noFpp);
-    
-    // 1. Cek apakah user adalah PIC utama dari FPP
-    if (fpp.pic && fpp.pic === userFullTim) {
-      console.log('Access granted: User is main PIC', userFullTim);
-      return true;
-    }
-    
-    // 2. Cek apakah user ada di tim project
-    if (fpp.timProject && Array.isArray(fpp.timProject)) {
-      const isInProjectTeam = fpp.timProject.some(member => {
-        const memberFullTim = `${member.department || ''}-${member.tim || ''}`;
-        const hasAccess = memberFullTim === userFullTim;
-        if (hasAccess) {
-          console.log('Access granted: User found in timProject', memberFullTim);
-        }
-        return hasAccess;
-      });
-      
-      if (isInProjectTeam) {
-        return true;
-      }
-    }
-    
-    // 3. Cek apakah FPP dari department dan tim yang sama (untuk visibility)
-    if (fpp.department === user.department && fpp.tim === user.tim) {
-      console.log('Access granted: Same department/tim');
-      return true;
-    }
-    
-    console.log('Access denied for FPP:', fpp.noFpp);
-    return false;
-  };
-
-  // Fungsi untuk memfilter data berdasarkan akses user
-  const filterByUserAccess = (data) => {
-    console.log('filterByUserAccess called, isHead:', isHead, 'data length:', data?.length);
-    
-    if (isHead) {
-      console.log('HEAD user - returning all data');
-      return data || [];
-    }
-    
-    if (!data || data.length === 0) {
-      return [];
-    }
-    
-    // User biasa hanya bisa melihat data yang terkait dengan mereka
-    const filtered = data.filter(fpp => hasAccessToFpp(fpp));
-    
-    console.log('TIM user filtered data:', filtered.length, 'out of', data.length);
-    return filtered;
-  };
-
-  // ========== END PERBAIKAN ==========
-
-  // Ambil data dari monitoring
-  const fetchAllData = async () => {
-    setLoading(true);
-    setError(null);
-    
-    console.log('fetchAllData started, isHead:', isHead);
-    
-    try {
-      // Ambil SEMUA data dari fpp_monitoring
-      const monitoringSnapshot = await getDocs(collection(db, 'fpp_monitoring'));
-      const monitoringDataArray = monitoringSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      
-      console.log('Raw data from Firestore:', monitoringDataArray.length);
-      
-      if (monitoringDataArray.length === 0) {
-        setError('Tidak ada data project. Silakan tambah data di halaman Monitoring terlebih dahulu.');
-        setLoading(false);
-        return null;
-      }
-      
-      // Format data untuk Dashboard
-      const formattedData = monitoringDataArray.map(item => ({
-        id: item.id,
-        masterProjectNumber: item.masterProjectNumber || item.noFpp || 'NO-PROJECT-' + item.id,
-        masterProjectName: item.masterProjectName || item.judulFpp || 'No Project Name',
-        masterProjectType: item.masterProjectType || 'project',
-        department: item.department || '-',
-        tim: item.tim || '-',
-        pic: item.pic || '-',
-        noFpp: item.noFpp || '-',
-        judulFpp: item.judulFpp || '-',
-        jenisProject: item.jenisProject || '-',
-        jenisProjectResolved: item.jenisProjectResolved || item.jenisProject || '-',
-        status: item.status || 'Not Yet',
-        rencanaPenugasan: item.rencanaPenugasan || [],
-        timProject: item.timProject || [],
-        approvalDate: item.approvalDate || null,
-        tanggalSelesai: item.tanggalSelesai || null,
-        keterangan: item.keterangan || '',
-        doneChecklist: item.doneChecklist || null,
-        createdAt: item.createdAt || new Date(),
-        updatedAt: item.updatedAt || new Date()
-      }));
-      
-      console.log('Formatted data:', formattedData.length);
-      
-      // Filter data berdasarkan akses user
-      const accessibleData = filterByUserAccess(formattedData);
-      
-      console.log('Accessible data after filter:', accessibleData.length);
-      
-      // Debug: Tampilkan project yang bisa diakses
-      if (!isHead) {
-        console.log('Projects accessible to user:', accessibleData.map(p => ({
-          noFpp: p.noFpp,
-          pic: p.pic,
-          department: p.department,
-          tim: p.tim,
-          isMainPic: p.pic === userFullTim
-        })));
-      }
-      
-      setFppEntries(accessibleData);
-      
-      // Group data by Master Project
-      const grouped = groupByMasterProject(accessibleData);
-      
-      console.log('Grouped data:', grouped.length);
-      
-      setGroupedData(grouped);
-      
-      // Apply filters
-      applyFiltersToData(grouped);
-      
-      // Setup real-time listener
-      const unsubscribe = onSnapshot(collection(db, 'fpp_monitoring'), (snapshot) => {
-        console.log('Real-time update received');
-        
+    const setupListener = () => {
+      unsubscribe = onSnapshot(collection(db, 'fpp_monitoring'), (snapshot) => {
         const updatedMonitoringData = snapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
@@ -697,13 +706,28 @@ function Dashboard() {
           judulFpp: item.judulFpp || '-',
           jenisProject: item.jenisProject || '-',
           jenisProjectResolved: item.jenisProjectResolved || item.jenisProject || '-',
-          status: item.status || 'Not Yet',
+          pirType: item.pirType || '-',
+          skalaProject: item.skalaProject || '-',
+          status: item.status || 'In Progress',
           rencanaPenugasan: item.rencanaPenugasan || [],
+          deliveryTimeline: item.deliveryTimeline || [],
+          uraianPekerjaan: item.uraianPekerjaan || [],
           timProject: item.timProject || [],
           approvalDate: item.approvalDate || null,
           tanggalSelesai: item.tanggalSelesai || null,
           keterangan: item.keterangan || '',
           doneChecklist: item.doneChecklist || null,
+          latarBelakang: item.latarBelakang || '',
+          tujuan: item.tujuan || '',
+          scope: item.scope || '',
+          unitKerjaTerkait: item.unitKerjaTerkait || '',
+          metodologi: item.metodologi || '',
+          successCriteria: item.successCriteria || '',
+          risikoMitigasi: item.risikoMitigasi || '',
+          tahunProject: item.tahunProject || '',
+          kategoriProject: item.kategoriProject || '',
+          projectDepartments: item.projectDepartments || [],
+          parafData: item.parafData || [],
           createdAt: item.createdAt || new Date(),
           updatedAt: item.updatedAt || new Date()
         }));
@@ -717,33 +741,114 @@ function Dashboard() {
         setGroupedData(newGrouped);
         
         applyFiltersToData(newGrouped);
+        
+        setLoading(false);
+      }, (error) => {
+        console.error('Error in real-time listener:', error);
+        setError('Error dalam real-time update: ' + error.message);
+        setLoading(false);
       });
+    };
+    
+    // Setup listener
+    setupListener();
+    
+    // Cleanup listener saat unmount
+    return () => {
+      if (unsubscribe && typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
+  }, []);
+
+  // Ambil data awal saat mount
+  useEffect(() => {
+    const fetchInitialData = async () => {
+      setLoading(true);
+      setError(null);
       
-      return unsubscribe;
-      
-    } catch (error) {
-      console.error('Error fetching data:', error);
-      setError('Error mengambil data: ' + error.message);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  };
+      try {
+        const monitoringSnapshot = await getDocs(collection(db, 'fpp_monitoring'));
+        const monitoringDataArray = monitoringSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        
+        if (monitoringDataArray.length === 0) {
+          setError('Tidak ada data project. Silakan tambah data di halaman Monitoring terlebih dahulu.');
+          setLoading(false);
+          return;
+        }
+        
+        const formattedData = monitoringDataArray.map(item => ({
+          id: item.id,
+          masterProjectNumber: item.masterProjectNumber || item.noFpp || 'NO-PROJECT-' + item.id,
+          masterProjectName: item.masterProjectName || item.judulFpp || 'No Project Name',
+          masterProjectType: item.masterProjectType || 'project',
+          department: item.department || '-',
+          tim: item.tim || '-',
+          pic: item.pic || '-',
+          noFpp: item.noFpp || '-',
+          judulFpp: item.judulFpp || '-',
+          jenisProject: item.jenisProject || '-',
+          jenisProjectResolved: item.jenisProjectResolved || item.jenisProject || '-',
+          pirType: item.pirType || '-',
+          skalaProject: item.skalaProject || '-',
+          status: item.status || 'In Progress',
+          rencanaPenugasan: item.rencanaPenugasan || [],
+          deliveryTimeline: item.deliveryTimeline || [],
+          uraianPekerjaan: item.uraianPekerjaan || [],
+          timProject: item.timProject || [],
+          approvalDate: item.approvalDate || null,
+          tanggalSelesai: item.tanggalSelesai || null,
+          keterangan: item.keterangan || '',
+          doneChecklist: item.doneChecklist || null,
+          latarBelakang: item.latarBelakang || '',
+          tujuan: item.tujuan || '',
+          scope: item.scope || '',
+          unitKerjaTerkait: item.unitKerjaTerkait || '',
+          metodologi: item.metodologi || '',
+          successCriteria: item.successCriteria || '',
+          risikoMitigasi: item.risikoMitigasi || '',
+          tahunProject: item.tahunProject || '',
+          kategoriProject: item.kategoriProject || '',
+          projectDepartments: item.projectDepartments || [],
+          parafData: item.parafData || [],
+          createdAt: item.createdAt || new Date(),
+          updatedAt: item.updatedAt || new Date()
+        }));
+        
+        const accessibleData = filterByUserAccess(formattedData);
+        setFppEntries(accessibleData);
+        
+        const grouped = groupByMasterProject(accessibleData);
+        setGroupedData(grouped);
+        applyFiltersToData(grouped);
+        
+      } catch (error) {
+        console.error('Error fetching initial data:', error);
+        setError('Error mengambil data: ' + error.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchInitialData();
+  }, []);
 
   // Fungsi delete dengan permission control
   const deleteFpp = async (fppId, masterProjectNumber, fppData) => {
-    // Cek permission
-    if (!isHead) {
-      alert('Hanya user dengan role HEAD yang dapat menghapus FPP!');
+    if (!isHead && !hasAccessToFpp(fppData)) {
+      alert('Anda tidak memiliki akses untuk menghapus FPP ini!');
       return;
     }
 
-    // Konfirmasi delete
     const confirmMessage = `HAPUS FPP\n\n` +
       `Master Project: ${masterProjectNumber}\n` +
       `No FPP: ${fppData.noFpp}\n` +
       `Judul: ${fppData.judulFpp}\n` +
-      `Department: ${fppData.department}\n\n` +
+      `Department: ${fppData.department}\n` +
+      `Project Departments: ${Array.isArray(fppData.projectDepartments) ? fppData.projectDepartments.join(', ') : fppData.projectDepartments}\n\n` +
       `Apakah Anda yakin ingin menghapus? Aksi ini tidak dapat dibatalkan!`;
     
     if (!window.confirm(confirmMessage)) {
@@ -751,18 +856,9 @@ function Dashboard() {
     }
 
     try {
-      // Tampilkan loading
       setLoading(true);
-      
-      // Hapus dari Firestore
       await deleteDoc(doc(db, 'fpp_monitoring', fppId));
-      
-      // Tampilkan success message
       alert(`✅ FPP berhasil dihapus!\n\nNo FPP: ${fppData.noFpp}`);
-      
-      // Refresh data
-      await fetchAllData();
-      
     } catch (error) {
       console.error('Error deleting FPP:', error);
       alert('❌ Gagal menghapus FPP:\n' + error.message);
@@ -773,49 +869,37 @@ function Dashboard() {
 
   // Hitung KPI berdasarkan data yang difilter
   const calculateKpiData = (data) => {
-    // Flatten semua FPP entries
     const allFppEntries = data.flatMap(group => group.fppEntries);
-    
-    // Hitung total FPP entries
     const totalFppEntries = allFppEntries.length;
-    
-    // Hitung berdasarkan status
-    const notYet = allFppEntries.filter(fpp => 
-      fpp.status === 'Not Yet' || !fpp.status || fpp.status === ''
-    ).length;
     
     const inProgress = allFppEntries.filter(fpp => 
       fpp.status === 'In Progress' || fpp.status === 'submitted' || fpp.status === 'draft'
     ).length;
     
     const hold = allFppEntries.filter(fpp => fpp.status === 'Hold').length;
-    
     const selesai = allFppEntries.filter(fpp => 
       fpp.status === 'Selesai' || fpp.status === 'Done' || fpp.status === 'Achieve'
     ).length;
-    
     const drop = allFppEntries.filter(fpp => fpp.status === 'Drop').length;
+    const revisi = allFppEntries.filter(fpp => fpp.status === 'Revisi FPP').length;
 
     return {
       totalMasterProjects: data.length,
       totalFppEntries: totalFppEntries,
-      notYet,
       inProgress,
       hold,
       selesai,
-      drop
+      drop,
+      revisi
     };
   };
 
   // Fungsi untuk apply filters ke data
   const applyFiltersToData = (data) => {
-    console.log('applyFiltersToData called with:', data?.length, 'groups');
-    
     let filtered = [...(data || [])];
     
     // Filter berdasarkan departemen (hanya untuk Head)
     if (isHead && selectedDepartments.length > 0 && !selectedDepartments.includes('ALL')) {
-      console.log('Filtering by departments:', selectedDepartments);
       filtered = filtered.filter(group => {
         return group.fppEntries.some(fpp => selectedDepartments.includes(fpp.department));
       });
@@ -871,156 +955,213 @@ function Dashboard() {
       });
     }
     
-    // Filter berdasarkan KPI (Not Yet, In Progress, etc.)
-    if (activeKpiFilter) {
+    // Filter berdasarkan Skala Project
+    if (filters.skalaProject) {
+      filtered = filtered.filter(group => {
+        return group.fppEntries.some(fpp => fpp.skalaProject === filters.skalaProject);
+      });
+    }
+    
+    // Filter target quarter
+    if (filters.target && filters.target !== 'ALL') {
       filtered = filtered.filter(group => {
         return group.fppEntries.some(fpp => {
-          const status = fpp.status === 'submitted' ? 'In Progress' : fpp.status;
-          return status === activeKpiFilter;
+          const quarter = getQuarterFromDate(fpp.approvalDate);
+          return quarter === filters.target;
         });
       });
     }
     
-    console.log('Filtered result:', filtered.length);
-    setFilteredData(filtered);
-    setCurrentPage(1); // Reset ke halaman 1 ketika filter berubah
+    // Apply KPI filter jika aktif
+    if (activeKpiFilter) {
+      filtered = filtered.filter(group => {
+        return group.fppEntries.some(fpp => {
+          if (activeKpiFilter === 'inProgress') {
+            return fpp.status === 'In Progress' || fpp.status === 'submitted' || fpp.status === 'draft';
+          } else if (activeKpiFilter === 'hold') {
+            return fpp.status === 'Hold';
+          } else if (activeKpiFilter === 'selesai') {
+            return fpp.status === 'Selesai' || fpp.status === 'Done' || fpp.status === 'Achieve';
+          } else if (activeKpiFilter === 'drop') {
+            return fpp.status === 'Drop';
+          } else if (activeKpiFilter === 'revisi') {
+            return fpp.status === 'Revisi FPP';
+          }
+          return true;
+        });
+      });
+    }
     
-    // Hitung pagination
+    setFilteredData(filtered);
+    setCurrentPage(1);
+    updateDisplayData(filtered);
+  };
+
+  // Fungsi untuk update display data dengan pagination
+  const updateDisplayData = (data) => {
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
-    setDisplayData(filtered.slice(startIndex, endIndex));
+    const paginatedData = data.slice(startIndex, endIndex);
+    setDisplayData(paginatedData);
   };
 
-  // Handle department selection (hanya untuk Head)
-  const handleDepartmentToggle = (dept) => {
-    if (!isHead) return;
-    
-    setSelectedDepartments(prev => {
-      if (dept === 'ALL') {
-        return ['ALL'];
-      }
-      
-      let newSelection;
-      if (prev.includes('ALL')) {
-        newSelection = [dept];
-      } else {
-        if (prev.includes(dept)) {
-          newSelection = prev.filter(d => d !== dept);
-          if (newSelection.length === 0) {
-            newSelection = ['ALL'];
-          }
-        } else {
-          newSelection = [...prev, dept];
-        }
-      }
-      return newSelection;
-    });
-  };
+  // Setup filters saat mounted atau data berubah
+  useEffect(() => {
+    applyFiltersToData(groupedData);
+  }, [groupedData, filters, selectedDepartments, activeKpiFilter]);
 
-  // Ambil data unik untuk filter dropdown
-  const getUniqueValues = (data) => {
-    const jenisProjects = [];
-    const pics = [];
-    const tims = [];
-    const statuses = [];
-    const departments = [];
-    
-    data.flatMap(group => group.fppEntries).forEach(fpp => {
-      // Jenis Project
-      const jenis = fpp.jenisProjectResolved || fpp.jenisProject;
-      if (jenis && !jenisProjects.includes(jenis)) {
-        jenisProjects.push(jenis);
-      }
-      
-      // PIC
-      if (fpp.pic && !pics.includes(fpp.pic)) {
-        pics.push(fpp.pic);
-      }
-      
-      // Tim
-      if (fpp.tim && !tims.includes(fpp.tim)) {
-        tims.push(fpp.tim);
-      }
-      
-      // Department
-      if (fpp.department && !departments.includes(fpp.department)) {
-        departments.push(fpp.department);
-      }
-      
-      // Status
-      const status = fpp.status === 'submitted' ? 'In Progress' : fpp.status;
-      if (status && !statuses.includes(status)) {
-        statuses.push(status);
-      }
-    });
-    
-    return {
-      jenisProjects: jenisProjects.sort(),
-      pics: pics.sort(),
-      tims: tims.sort(),
-      departments: departments.sort(),
-      statuses: statuses.sort()
-    };
-  };
+  // Update display data saat currentPage berubah
+  useEffect(() => {
+    updateDisplayData(filteredData);
+  }, [filteredData, currentPage]);
 
-  // Handler untuk perubahan filter
-  const handleFilterChange = (e) => {
-    const { name, value } = e.target;
+  // Handler untuk filter change
+  const handleFilterChange = (key, value) => {
     setFilters(prev => ({
       ...prev,
-      [name]: value
+      [key]: value
     }));
   };
 
-  // Handler untuk search
-  const handleSearchChange = (e) => {
-    setFilters(prev => ({
-      ...prev,
-      search: e.target.value
-    }));
-  };
-
-  // Handler untuk KPI card click
-  const handleKpiClick = (status) => {
-    if (activeKpiFilter === status) {
-      setActiveKpiFilter(''); // Toggle off
-    } else {
-      setActiveKpiFilter(status);
-    }
-  };
-
-  // Reset semua filter
+  // Handler untuk reset filters
   const resetFilters = () => {
-    setSelectedDepartments(['ALL']);
     setFilters({
       jenisProject: '',
       pic: '',
       target: '',
       tim: '',
       status: '',
+      skalaProject: '',
       search: '',
       department: ''
     });
     setActiveKpiFilter('');
-    setCurrentPage(1);
   };
 
-  // Handle page change
-  const handlePageChange = (pageNumber) => {
-    setCurrentPage(pageNumber);
-    const startIndex = (pageNumber - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    setDisplayData(filteredData.slice(startIndex, endIndex));
+  // Handler untuk KPI card click
+  const handleKpiCardClick = (filterType) => {
+    setActiveKpiFilter(prev => prev === filterType ? '' : filterType);
   };
 
-  // Handle lihat detail
-  const handleViewDetail = (fpp) => {
-    setSelectedFpp(fpp);
+  // Handler untuk detail modal
+  const handleShowDetail = (fppData) => {
+    setSelectedFpp(fppData);
     setShowDetailModal(true);
   };
 
+  // Handler untuk export ke Excel
+  const exportToExcel = () => {
+    try {
+      const allFppEntries = filteredData.flatMap(group => group.fppEntries);
+      
+      if (allFppEntries.length === 0) {
+        alert('Tidak ada data untuk diexport!');
+        return;
+      }
+      
+      const excelData = allFppEntries.map(fpp => {
+        const formatDateForExcel = (dateValue) => {
+          if (!dateValue) return '-';
+          try {
+            let date;
+            if (typeof dateValue.toDate === 'function') {
+              date = dateValue.toDate();
+            } else {
+              date = new Date(dateValue);
+            }
+            return date.toLocaleDateString('id-ID');
+          } catch (error) {
+            return '-';
+          }
+        };
+        
+        const formatChecklist = (checklist) => {
+          if (!checklist || !checklist.items) return '-';
+          const checkedItems = Object.entries(checklist.items)
+            .filter(([_, item]) => item.checked)
+            .map(([key, _]) => key.toUpperCase());
+          return checkedItems.join(', ');
+        };
+        
+        const formatDepartments = (departments) => {
+          if (!departments) return '-';
+          if (Array.isArray(departments)) return departments.join(', ');
+          return departments;
+        };
+        
+        const formatUraianPekerjaan = (uraianPekerjaan) => {
+          if (!uraianPekerjaan || !Array.isArray(uraianPekerjaan)) return '-';
+          return uraianPekerjaan.map(item => 
+            `${item.jenisPekerjaan || ''}: ${item.uraian || ''}`
+          ).join('; ');
+        };
+        
+        return {
+          'Master Project Number': fpp.masterProjectNumber || '-',
+          'Master Project Name': fpp.masterProjectName || '-',
+          'No FPP': fpp.noFpp || '-',
+          'Judul FPP': fpp.judulFpp || '-',
+          'Skala Project': fpp.skalaProject || '-',
+          'Department': fpp.department || '-',
+          'TIM': fpp.tim || '-',
+          'PIC': fpp.pic || '-',
+          'Jenis Project': fpp.jenisProjectResolved || fpp.jenisProject || '-',
+          'PIR Type': fpp.pirType || '-',
+          'Status': fpp.status || 'In Progress',
+          'Tanggal Approval': formatDateForExcel(fpp.approvalDate),
+          'Tanggal Selesai': formatDateForExcel(fpp.tanggalSelesai),
+          'Target Quarter': getQuarterFromDate(fpp.approvalDate),
+          'Project Departments': formatDepartments(fpp.projectDepartments),
+          'Done Checklist Items': fpp.doneChecklist ? formatChecklist(fpp.doneChecklist) : '-',
+          'Done Checklist Department': fpp.doneChecklist?.department || '-',
+          'Done Checklist Submitted By': fpp.doneChecklist?.submittedBy || '-',
+          'Keterangan': fpp.keterangan || '-',
+          'Latar Belakang': fpp.latarBelakang || '-',
+          'Tujuan': fpp.tujuan || '-',
+          'Scope': fpp.scope || '-',
+          'Unit Kerja Terkait': fpp.unitKerjaTerkait || '-',
+          'Metodologi': fpp.metodologi || '-',
+          'Success Criteria': fpp.successCriteria || '-',
+          'Risiko Mitigasi': fpp.risikoMitigasi || '-',
+          'Tahun Project': fpp.tahunProject || '-',
+          'Kategori Project': fpp.kategoriProject || '-',
+          // 'Uraian Pekerjaan': formatUraianPekerjaan(fpp.uraianPekerjaan)
+        };
+      });
+      
+      const ws = XLSX.utils.json_to_sheet(excelData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'FPP Data');
+      
+      const maxWidth = excelData.reduce((w, r) => Math.max(w, Object.values(r).join('').length), 10);
+      ws['!cols'] = Array(Object.keys(excelData[0]).length).fill({ wch: maxWidth });
+      
+      const fileName = `FPP_Dashboard_Export_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      
+      alert(`✅ Data berhasil diexport ke ${fileName}`);
+    } catch (error) {
+      console.error('Error exporting to Excel:', error);
+      alert('❌ Gagal export data: ' + error.message);
+    }
+  };
+
+  // Hitung KPI data
+  const kpiData = calculateKpiData(filteredData);
+  
+  // Get unique values untuk dropdown filters
+  const getUniqueValues = (key) => {
+    const values = new Set();
+    filteredData.forEach(group => {
+      group.fppEntries.forEach(fpp => {
+        if (fpp[key]) values.add(fpp[key]);
+      });
+    });
+    return Array.from(values).sort();
+  };
+
   // Format date untuk display
-  const formatDateDisplay = (dateValue) => {
+  const formatDateForDisplay = (dateValue) => {
     if (!dateValue) return '-';
     try {
       let date;
@@ -1042,670 +1183,507 @@ function Dashboard() {
     }
   };
 
-  // Fungsi untuk export ke Excel
-  const exportToExcel = () => {
-    if (filteredData.length === 0) {
-      alert('Tidak ada data untuk diexport!');
-      return;
-    }
-
-    try {
-      // Flatten data dan tambahkan semua kolom yang ada di detail modal
-      const excelData = filteredData.flatMap(group => 
-        group.fppEntries.map(fpp => {
-          // Format dates
-          const formatDateForExcel = (dateValue) => {
-            if (!dateValue) return '-';
-            try {
-              let date;
-              if (typeof dateValue.toDate === 'function') {
-                date = dateValue.toDate();
-              } else {
-                date = new Date(dateValue);
-              }
-              
-              if (isNaN(date.getTime())) return '-';
-              
-              return date.toLocaleDateString('id-ID', {
-                day: '2-digit',
-                month: 'long',
-                year: 'numeric'
-              });
-            } catch (error) {
-              return '-';
-            }
-          };
-
-          // Format checklist items
-          const checklistItems = fpp.doneChecklist?.items ? 
-            Object.entries(fpp.doneChecklist.items)
-              .filter(([key, item]) => item.checked)
-              .map(([key, item]) => `${key}: ${item.textValue || '-'}`)
-              .join('; ') : '-';
-
-          // Format rencana penugasan
-          const rencanaPenugasanText = fpp.rencanaPenugasan?.length > 0 ?
-            fpp.rencanaPenugasan.map(item => 
-              `${item.keterangan || '-'}: ${formatDateForExcel(item.tglTarget)}`
-            ).join('; ') : '-';
-
-          // Format tim project
-          const timProjectText = fpp.timProject?.length > 0 ?
-            fpp.timProject.map(tim => 
-              `${tim.department || '-'} - ${tim.tim || '-'}: ${tim.pic || '-'} (${(tim.outputs || []).join(', ')})`
-            ).join('; ') : '-';
-
-          return {
-            // Basic Info
-            'No Project/Induk FPP': fpp.masterProjectNumber || '-',
-            'No FPP': fpp.noFpp || '-',
-            'Judul FPP': fpp.judulFpp || '-',
-            'Department': fpp.department || '-',
-            'TIM': fpp.tim || '-',
-            'PIC': fpp.pic || '-',
-            'Jenis Project': fpp.jenisProjectResolved || fpp.jenisProject || '-',
-            'Status': fpp.status === 'submitted' ? 'In Progress' : fpp.status || 'Not Yet',
-            
-            // Dates
-            'Tanggal Approval': formatDateForExcel(fpp.approvalDate),
-            'Tanggal Start': formatDateForExcel(fpp.approvalDate),
-            'Tanggal Selesai': formatDateForExcel(fpp.tanggalSelesai),
-            'Durasi': calculateDuration(fpp),
-            
-            // Detail Info
-            'Master Project Name': fpp.masterProjectName || '-',
-            'Keterangan': fpp.keterangan || '-',
-            
-            // Done Checklist
-            'Done Checklist Department': fpp.doneChecklist?.department || '-',
-            'Done Checklist Items': checklistItems,
-            'Done Checklist Submitted By': fpp.doneChecklist?.submittedBy || '-',
-            'Done Checklist Submitted At': formatDateForExcel(fpp.doneChecklist?.submittedAt),
-            
-            // Rencana Penugasan
-            'Rencana Penugasan': rencanaPenugasanText,
-            
-            // Tim Project
-            'Tim Project': timProjectText,
-            
-            // Metadata
-            'Created At': formatDateForExcel(fpp.createdAt),
-            'Updated At': formatDateForExcel(fpp.updatedAt)
-          };
-        })
-      );
-
-      // Create worksheet
-      const ws = XLSX.utils.json_to_sheet(excelData);
-      
-      // Set column widths
-      const wscols = [
-        { wch: 20 }, // No Project/Induk FPP
-        { wch: 15 }, // No FPP
-        { wch: 40 }, // Judul FPP
-        { wch: 10 }, // Department
-        { wch: 15 }, // TIM
-        { wch: 20 }, // PIC
-        { wch: 20 }, // Jenis Project
-        { wch: 15 }, // Status
-        { wch: 15 }, // Tanggal Approval
-        { wch: 15 }, // Tanggal Start
-        { wch: 15 }, // Tanggal Selesai
-        { wch: 10 }, // Durasi
-        { wch: 30 }, // Master Project Name
-        { wch: 30 }, // Keterangan
-        { wch: 15 }, // Done Checklist Department
-        { wch: 50 }, // Done Checklist Items
-        { wch: 20 }, // Done Checklist Submitted By
-        { wch: 15 }, // Done Checklist Submitted At
-        { wch: 50 }, // Rencana Penugasan
-        { wch: 50 }, // Tim Project
-        { wch: 15 }, // Created At
-        { wch: 15 }  // Updated At
-      ];
-      ws['!cols'] = wscols;
-
-      // Create workbook
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Dashboard Data");
-
-      // Generate filename with timestamp
-      const timestamp = new Date().toISOString().split('T')[0];
-      const filename = `Dashboard_Export_${timestamp}.xlsx`;
-
-      // Save file
-      XLSX.writeFile(wb, filename);
-      
-      alert(`Data berhasil diexport ke ${filename}`);
-    } catch (error) {
-      console.error('Error exporting to Excel:', error);
-      alert('Error saat mengeksport data ke Excel: ' + error.message);
-    }
-  };
-
-  // Apply filters ketika filters berubah
-  useEffect(() => {
-    console.log('Filters changed, applying...');
-    if (groupedData.length > 0) {
-      applyFiltersToData(groupedData);
-    }
-  }, [selectedDepartments, filters, activeKpiFilter, groupedData]);
-
-  // Update display data ketika filteredData berubah
-  useEffect(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    setDisplayData(filteredData.slice(startIndex, endIndex));
-  }, [filteredData, currentPage]);
-
-  // Hitung KPI
-  const kpiData = calculateKpiData(filteredData);
-
-  // Load data saat component mount
-  useEffect(() => {
-    let unsubscribe;
-    
-    const loadData = async () => {
-      unsubscribe = await fetchAllData();
-    };
-    
-    loadData();
-    
-    return () => {
-      if (unsubscribe) {
-        unsubscribe();
-      }
-    };
-  }, []);
-
-  const uniqueValues = getUniqueValues(filteredData);
+  // Dapatkan jumlah total halaman
+  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
 
   // Render pagination
   const renderPagination = () => {
-    if (filteredData.length <= itemsPerPage) return null;
+    if (totalPages <= 1) return null;
     
-    const totalPages = Math.ceil(filteredData.length / itemsPerPage);
     const pageNumbers = [];
+    const maxVisiblePages = 5;
     
-    // Always show first page
-    pageNumbers.push(1);
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
     
-    // Show pages around current page
-    for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) {
+    if (endPage - startPage + 1 < maxVisiblePages) {
+      startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+    
+    for (let i = startPage; i <= endPage; i++) {
       pageNumbers.push(i);
     }
     
-    // Always show last page
-    if (totalPages > 1) {
-      pageNumbers.push(totalPages);
-    }
-    
-    // Remove duplicates and sort
-    const uniquePageNumbers = [...new Set(pageNumbers)].sort((a, b) => a - b);
-    
     return (
-      <div className="d-flex justify-content-center mt-4">
-        <Pagination>
-          <Pagination.First 
-            onClick={() => handlePageChange(1)} 
-            disabled={currentPage === 1}
-          />
-          <Pagination.Prev 
-            onClick={() => handlePageChange(Math.max(1, currentPage - 1))} 
-            disabled={currentPage === 1}
-          />
-          
-          {uniquePageNumbers.map((pageNum, index) => {
-            // Add ellipsis if there's a gap
-            if (index > 0 && pageNum - uniquePageNumbers[index - 1] > 1) {
-              return (
-                <Pagination.Ellipsis key={`ellipsis-${pageNum}`} disabled />
-              );
-            }
-            
-            return (
-              <Pagination.Item
-                key={pageNum}
-                active={pageNum === currentPage}
-                onClick={() => handlePageChange(pageNum)}
-              >
-                {pageNum}
-              </Pagination.Item>
-            );
-          })}
-          
-          <Pagination.Next 
-            onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))} 
-            disabled={currentPage === totalPages}
-          />
-          <Pagination.Last 
-            onClick={() => handlePageChange(totalPages)} 
-            disabled={currentPage === totalPages}
-          />
-        </Pagination>
-      </div>
+      <Pagination className="justify-content-center mt-3 flex-wrap">
+        <Pagination.First 
+          onClick={() => setCurrentPage(1)} 
+          disabled={currentPage === 1}
+          size="sm"
+        />
+        <Pagination.Prev 
+          onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))} 
+          disabled={currentPage === 1}
+          size="sm"
+        />
+        
+        {startPage > 1 && (
+          <>
+            <Pagination.Item onClick={() => setCurrentPage(1)} size="sm">1</Pagination.Item>
+            {startPage > 2 && <Pagination.Ellipsis disabled size="sm" />}
+          </>
+        )}
+        
+        {pageNumbers.map(number => (
+          <Pagination.Item 
+            key={number} 
+            active={number === currentPage}
+            onClick={() => setCurrentPage(number)}
+            size="sm"
+          >
+            {number}
+          </Pagination.Item>
+        ))}
+        
+        {endPage < totalPages && (
+          <>
+            {endPage < totalPages - 1 && <Pagination.Ellipsis disabled size="sm" />}
+            <Pagination.Item onClick={() => setCurrentPage(totalPages)} size="sm">
+              {totalPages}
+            </Pagination.Item>
+          </>
+        )}
+        
+        <Pagination.Next 
+          onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))} 
+          disabled={currentPage === totalPages}
+          size="sm"
+        />
+        <Pagination.Last 
+          onClick={() => setCurrentPage(totalPages)} 
+          disabled={currentPage === totalPages}
+          size="sm"
+        />
+      </Pagination>
     );
   };
 
+  // Render UI
   return (
-    <Container className="py-4">
-      <div className="mb-4">
-        <div className="fs-5 fw-semibold">Dashboard</div>
-        <div className="text-muted small">
-          {user && (
-            <>
-              Logged in as: <Badge bg="info">{user.userType || user.role}</Badge>
-              {user.department && <Badge bg="secondary" className="ms-2">{user.department}</Badge>}
-              {user.tim && <Badge bg="light" text="dark" className="ms-2">{user.tim}</Badge>}
-            </>
-          )}
-        </div>
-      </div>
+    <div className='container'>
+      <Container className="container row py-4 px-3" style={{ overflowX: 'hidden' }}>
+        {/* Header */}
+        <Row className="">
+          <Col>
+            <div className='fs-5 fw-semibold'>Dashboard FPP</div>
+            <p className="text-muted">
+              {isHead ? 'Overview semua departemen' : `Akses terbatas untuk departemen ${userDepartment}`}
+            </p>
+            
+            {/* User Info */}
+            <Alert variant="info" className="py-2 mb-3">
+              <div className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center">
+                <div className="mb-2 mb-md-0">
+                  <strong>{user?.username || user?.email}</strong> 
+                  {isHead && <Badge bg="danger" className="ms-2">HEAD</Badge>}
+                  <Badge bg="primary" className="ms-2">{userDepartment}</Badge>
+                </div>
+                <div className="text-md-end">
+                  <small>Total Project: {filteredData.length} | Total FPP: {kpiData.totalFppEntries}</small>
+                </div>
+              </div>
+            </Alert>
+          </Col>
+        </Row>
 
-      {error && (
-        <Alert variant="danger" dismissible onClose={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
+        {/* KPI Cards */}
+        <Row className="mb-4 g-2 container">
+          <Col xs={6} sm={4} md={3} lg={2}>
+            <KpiCard 
+              title="Total Master Project" 
+              value={kpiData.totalMasterProjects}
+              variant="primary"
+              loading={loading}
+              onClick={() => handleKpiCardClick('')}
+              isActive={!activeKpiFilter}
+            />
+          </Col>
+          <Col xs={6} sm={4} md={3} lg={2}>
+            <KpiCard 
+              title="Total FPP" 
+              value={kpiData.totalFppEntries}
+              variant="info"
+              loading={loading}
+              onClick={() => handleKpiCardClick('')}
+              isActive={!activeKpiFilter}
+            />
+          </Col>
+          <Col xs={6} sm={4} md={3} lg={2}>
+            <KpiCard 
+              title="In Progress" 
+              value={kpiData.inProgress}
+              variant="warning"
+              loading={loading}
+              onClick={() => handleKpiCardClick('inProgress')}
+              isActive={activeKpiFilter === 'inProgress'}
+            />
+          </Col>
+          <Col xs={6} sm={4} md={3} lg={2}>
+            <KpiCard 
+              title="Hold" 
+              value={kpiData.hold}
+              variant="secondary"
+              loading={loading}
+              onClick={() => handleKpiCardClick('hold')}
+              isActive={activeKpiFilter === 'hold'}
+            />
+          </Col>
+          <Col xs={6} sm={4} md={3} lg={2}>
+            <KpiCard 
+              title="Selesai" 
+              value={kpiData.selesai}
+              variant="success"
+              loading={loading}
+              onClick={() => handleKpiCardClick('selesai')}
+              isActive={activeKpiFilter === 'selesai'}
+            />
+          </Col>
+          <Col xs={6} sm={4} md={3} lg={2}>
+            <KpiCard 
+              title="Revisi" 
+              value={kpiData.revisi}
+              variant="info"
+              loading={loading}
+              onClick={() => handleKpiCardClick('revisi')}
+              isActive={activeKpiFilter === 'revisi'}
+            />
+          </Col>
+        </Row>
 
-      {/* Filter Department (hanya untuk Head) */}
-      {isHead && (
-        <Card className="mb-4 border-0">
-          <Card.Body>
-            <div className="mb-3 fw-semibold">Filter Departemen:</div>
-            <div className="mb-2">
-              <small className="text-muted">
-                {selectedDepartments.includes('ALL') 
-                  ? 'Semua Departemen terpilih' 
-                  : `${selectedDepartments.length} departemen terpilih: ${selectedDepartments.join(', ')}`}
-              </small>
-            </div>
-            <div className="d-flex flex-wrap gap-2">
-              <Button
-                variant={selectedDepartments.includes('ALL') ? "primary" : "outline-primary"}
-                onClick={() => handleDepartmentToggle('ALL')}
-              >
-                ALL
-              </Button>
-              {['PPD', 'DPA', 'UUD', 'PDM'].map(dept => (
-                <Button
-                  key={dept}
-                  variant={selectedDepartments.includes(dept) ? "primary" : "outline-primary"}
-                  onClick={() => handleDepartmentToggle(dept)}
-                >
-                  {dept}
+        {/* Filters Section */}
+        <Card className="mb-4 container">
+          <Card.Header className="bg-light">
+            <div className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center">
+              <h5 className="mb-2 mb-md-0">Filters</h5>
+              <div className="d-flex flex-wrap gap-2">
+                <Button variant="outline-secondary" size="sm" onClick={resetFilters}>
+                  Reset Filters
                 </Button>
-              ))}
+                <Button variant="success" size="sm" onClick={exportToExcel}>
+                  <FaFileExcel className="me-1" /> Export Excel
+                </Button>
+              </div>
             </div>
-          </Card.Body>
-        </Card>
-      )}
-
-      {/* KPI Cards */}
-      <Row className="mb-4 g-3">
-        <Col xs={12} sm={6} md={4} lg={2}>
-          <KpiCard 
-            title="Total Project" 
-            value={kpiData.totalMasterProjects}
-            variant="light"
-            loading={loading}
-          />
-        </Col>
-        <Col xs={12} sm={6} md={4} lg={2}>
-          <KpiCard 
-            title="Total FPP" 
-            value={kpiData.totalFppEntries}
-            variant="light"
-            loading={loading}
-          />
-        </Col>
-        <Col xs={12} sm={6} md={4} lg={2}>
-          <KpiCard 
-            title="Not Yet" 
-            value={kpiData.notYet}
-            variant="light"
-            loading={loading}
-            onClick={() => handleKpiClick('Not Yet')}
-            isActive={activeKpiFilter === 'Not Yet'}
-          />
-        </Col>
-        <Col xs={12} sm={6} md={4} lg={2}>
-          <KpiCard 
-            title="In Progress" 
-            value={kpiData.inProgress}
-            variant="light"
-            loading={loading}
-            onClick={() => handleKpiClick('In Progress')}
-            isActive={activeKpiFilter === 'In Progress'}
-          />
-        </Col>
-        <Col xs={12} sm={6} md={4} lg={2}>
-          <KpiCard 
-            title="Hold" 
-            value={kpiData.hold}
-            variant="light"
-            loading={loading}
-            onClick={() => handleKpiClick('Hold')}
-            isActive={activeKpiFilter === 'Hold'}
-          />
-        </Col>
-        <Col xs={12} sm={6} md={4} lg={2}>
-          <KpiCard 
-            title="Selesai" 
-            value={kpiData.selesai}
-            variant="light"
-            loading={loading}
-            onClick={() => handleKpiClick('Done')}
-            isActive={activeKpiFilter === 'Done'}
-          />
-        </Col>
-        <Col xs={12} sm={6} md={4} lg={2}>
-          <KpiCard 
-            title="Drop" 
-            value={kpiData.drop}
-            variant="light"
-            loading={loading}
-            onClick={() => handleKpiClick('Drop')}
-            isActive={activeKpiFilter === 'Drop'}
-          />
-        </Col>
-      </Row>
-
-      {/* Search and Filters */}
-      <Card className="mb-4">
-        <Card.Body>
-          <Row className="align-items-end">
-            <Col md={4}>
-              <Form.Group className="mb-3">
-                <Form.Label>Search Project/FPP</Form.Label>
+          </Card.Header>
+          <Card.Body>
+            <Row className="g-2">
+              {/* Search Input */}
+              <Col xs={12} className="mb-2">
                 <InputGroup>
                   <InputGroup.Text>
                     <FaSearch />
                   </InputGroup.Text>
                   <Form.Control
-                    type="text"
-                    name="search"
-                    placeholder="Cari berdasarkan No Project, No FPP, atau Judul..."
+                    placeholder="Cari berdasarkan No. Project, No. FPP, atau Judul..."
                     value={filters.search}
-                    onChange={handleSearchChange}
+                    onChange={(e) => handleFilterChange('search', e.target.value)}
+                    size="sm"
                   />
                 </InputGroup>
-              </Form.Group>
-            </Col>
-            <Col md={2}>
-              <Form.Group className="mb-3">
-                <Form.Label>Jenis Project</Form.Label>
+              </Col>
+
+              {/* Filter lainnya */}
+              <Col xs={12} sm={6} md={4} lg={3} className="mb-2">
+                <Form.Label className="small mb-1">Jenis Project</Form.Label>
                 <Form.Select
-                  name="jenisProject"
+                  size="sm"
                   value={filters.jenisProject}
-                  onChange={handleFilterChange}
+                  onChange={(e) => handleFilterChange('jenisProject', e.target.value)}
                 >
                   <option value="">Semua Jenis</option>
-                  {uniqueValues.jenisProjects.map(jenis => (
-                    <option key={jenis} value={jenis}>{jenis}</option>
+                  {getUniqueValues('jenisProjectResolved').map((jenis, idx) => (
+                    <option key={idx} value={jenis}>{jenis}</option>
                   ))}
                 </Form.Select>
-              </Form.Group>
-            </Col>
-            {isHead && (
-              <>
-                <Col md={2}>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Department</Form.Label>
-                    <Form.Select
-                      name="department"
-                      value={filters.department}
-                      onChange={handleFilterChange}
-                    >
-                      <option value="">Semua Department</option>
-                      {uniqueValues.departments.map(dept => (
-                        <option key={dept} value={dept}>{dept}</option>
-                      ))}
-                    </Form.Select>
-                  </Form.Group>
-                </Col>
-                <Col md={2}>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Tim</Form.Label>
-                    <Form.Select
-                      name="tim"
-                      value={filters.tim}
-                      onChange={handleFilterChange}
-                    >
-                      <option value="">Semua Tim</option>
-                      {uniqueValues.tims.map(tim => (
-                        <option key={tim} value={tim}>{tim}</option>
-                      ))}
-                    </Form.Select>
-                  </Form.Group>
-                </Col>
-              </>
-            )}
-            <Col md={2}>
-              <Form.Group className="mb-3">
-                <Form.Label>PIC</Form.Label>
+              </Col>
+
+              <Col xs={12} sm={6} md={4} lg={2} className="mb-2">
+                <Form.Label className="small mb-1">PIC</Form.Label>
                 <Form.Select
-                  name="pic"
+                  size="sm"
                   value={filters.pic}
-                  onChange={handleFilterChange}
+                  onChange={(e) => handleFilterChange('pic', e.target.value)}
                 >
                   <option value="">Semua PIC</option>
-                  {uniqueValues.pics.map(pic => (
-                    <option key={pic} value={pic}>{pic}</option>
+                  {getUniqueValues('pic').map((pic, idx) => (
+                    <option key={idx} value={pic}>{pic}</option>
                   ))}
                 </Form.Select>
-              </Form.Group>
-            </Col>
-            <Col md={2}>
-              <Form.Group className="mb-3">
-                <Form.Label>Status</Form.Label>
+              </Col>
+
+              <Col xs={12} sm={6} md={4} lg={2} className="mb-2">
+                <Form.Label className="small mb-1">TIM</Form.Label>
                 <Form.Select
-                  name="status"
+                  size="sm"
+                  value={filters.tim}
+                  onChange={(e) => handleFilterChange('tim', e.target.value)}
+                >
+                  <option value="">Semua TIM</option>
+                  {getUniqueValues('tim').map((tim, idx) => (
+                    <option key={idx} value={tim}>{tim}</option>
+                  ))}
+                </Form.Select>
+              </Col>
+
+              <Col xs={12} sm={6} md={4} lg={2} className="mb-2">
+                <Form.Label className="small mb-1">Department</Form.Label>
+                <Form.Select
+                  size="sm"
+                  value={filters.department}
+                  onChange={(e) => handleFilterChange('department', e.target.value)}
+                  disabled={!isHead}
+                >
+                  <option value="">Semua Department</option>
+                  {getUniqueValues('department').map((dept, idx) => (
+                    <option key={idx} value={dept}>{dept}</option>
+                  ))}
+                </Form.Select>
+                {!isHead && <small className="text-muted">Filter department hanya untuk Head</small>}
+              </Col>
+
+              <Col xs={12} sm={6} md={4} lg={2} className="mb-2">
+                <Form.Label className="small mb-1">Skala Project</Form.Label>
+                <Form.Select
+                  size="sm"
+                  value={filters.skalaProject}
+                  onChange={(e) => handleFilterChange('skalaProject', e.target.value)}
+                >
+                  <option value="">Semua Skala</option>
+                  <option value="Small">Small</option>
+                  <option value="Medium">Medium</option>
+                  <option value="Large">Large</option>
+                </Form.Select>
+              </Col>
+
+              <Col xs={12} sm={6} md={4} lg={2} className="mb-2">
+                <Form.Label className="small mb-1">Status</Form.Label>
+                <Form.Select
+                  size="sm"
                   value={filters.status}
-                  onChange={handleFilterChange}
+                  onChange={(e) => handleFilterChange('status', e.target.value)}
                 >
                   <option value="">Semua Status</option>
-                  {uniqueValues.statuses.map(status => (
-                    <option key={status} value={status}>
-                      {status === 'submitted' ? 'In Progress' : status}
-                    </option>
-                  ))}
+                  <option value="In Progress">In Progress</option>
+                  <option value="Hold">Hold</option>
+                  <option value="Selesai">Selesai</option>
+                  <option value="Drop">Drop</option>
+                  <option value="Revisi FPP">Revisi FPP</option>
                 </Form.Select>
-              </Form.Group>
-            </Col>
-            <Col md={2} className="d-flex gap-2">
-              <Button 
-                variant="dark" 
-                onClick={resetFilters}
-                className="w-100 mb-3"
-              >
-                Reset
-              </Button>
-              <Button 
-                variant="success" 
-                onClick={exportToExcel}
-                className="w-100 mb-3 d-flex align-items-center justify-content-center gap-2"
-              >
-                <FaFileExcel /> Excel
-              </Button>
-            </Col>
-          </Row>
-          <div className="mt-2">
-            <small className="text-muted">
-              Menampilkan {displayData.length} dari {filteredData.length} Master Projects 
-              (Total {filteredData.flatMap(group => group.fppEntries).length} FPP entries)
-              {activeKpiFilter && ` | Filter: ${activeKpiFilter}`}
-              {isHead ? ' | Akses: HEAD (Semua Data)' : ` | Akses: ${userFullTim}`}
-            </small>
-          </div>
-        </Card.Body>
-      </Card>
+              </Col>
 
-      {/* Tabel Data */}
-      <Card>
-        <Card.Header className="bg-light text-dark d-flex justify-content-between align-items-center">
-          <div className="mb-0 fw-semibold">
-            Daftar Project & FPP {isHead && '(Semua Data)'}
-          </div>
-          <div className="d-flex align-items-center gap-2">
-            <Badge bg="light" text="dark" className="fs-6">
-              Halaman {currentPage} dari {Math.ceil(filteredData.length / itemsPerPage) || 1}
-            </Badge>
-            <Badge bg="light" text="dark" className="fs-6">
-              Total: {filteredData.length} Master Projects
-            </Badge>
-          </div>
-        </Card.Header>
-        <Card.Body>
-          {loading ? (
-            <div className="text-center py-5">
-              <Spinner animation="border" variant="primary" />
-              <p className="mt-3">Memuat data...</p>
+              <Col xs={12} sm={6} md={4} lg={2} className="mb-2">
+                <Form.Label className="small mb-1">Target Quarter</Form.Label>
+                <Form.Select
+                  size="sm"
+                  value={filters.target}
+                  onChange={(e) => handleFilterChange('target', e.target.value)}
+                >
+                  <option value="">Semua Quarter</option>
+                  <option value="Q1">Q1</option>
+                  <option value="Q2">Q2</option>
+                  <option value="Q3">Q3</option>
+                  <option value="Q4">Q4</option>
+                </Form.Select>
+              </Col>
+            </Row>
+          </Card.Body>
+        </Card>
+
+        {/* Data Table */}
+        <Card>
+          <Card.Header className="bg-light">
+            <div className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center">
+              <h5 className="mb-2 mb-md-0">
+                Data FPP 
+                {activeKpiFilter && (
+                  <Badge bg="warning" className="ms-2">
+                    Filter: {activeKpiFilter}
+                  </Badge>
+                )}
+              </h5>
+              <div>
+                <small className="text-muted">
+                  Menampilkan {displayData.length} dari {filteredData.length} project
+                  (Total {kpiData.totalFppEntries} FPP)
+                </small>
+              </div>
             </div>
-          ) : filteredData.length === 0 ? (
-            <Alert variant="info">
-              {fppEntries.length === 0 ? (
-                <>
-                  {!isHead ? (
-                    <>
-                      Tidak ada project yang terkait dengan Anda ({userFullTim}).<br />
-                      Project akan muncul jika Anda menjadi PIC utama atau anggota tim project.
-                    </>
-                  ) : (
-                    <>
-                      Database kosong. Data dari Monitoring belum ada.<br />
-                      <Button variant="primary" className="mt-2" onClick={fetchAllData}>
-                        Coba Muat Ulang
-                      </Button>
-                    </>
-                  )}
-                </>
-              ) : (
-                'Tidak ada data project yang sesuai dengan filter.'
-              )}
-            </Alert>
-          ) : (
-            <>
-              <div className="table-responsive">
-                <Table striped bordered hover>
-                    <thead className="table-light">
+          </Card.Header>
+          <Card.Body className="p-0">
+            {loading ? (
+              <div className="text-center py-5">
+                <Spinner animation="border" variant="primary" />
+                <p className="mt-2">Memuat data...</p>
+              </div>
+            ) : error ? (
+              <Alert variant="danger" className="m-3">
+                {error}
+              </Alert>
+            ) : filteredData.length === 0 ? (
+              <Alert variant="warning" className="m-3">
+                Tidak ada data yang ditemukan dengan filter saat ini.
+              </Alert>
+            ) : (
+              <>
+                {/* Table dengan overflow horizontal */}
+                <div className="table-responsive" style={{ maxHeight: '600px', overflowY: 'auto' }}>
+                  <Table striped bordered hover className="mb-0" style={{ minWidth: '1500px' }}>
+                    <thead className="bg-light position-sticky top-0">
                       <tr>
-                        <th style={{ width: '5%' }}>No</th>
-                        <th style={{ width: '15%' }}>No Project/Induk FPP</th>
-                        <th style={{ width: '10%' }}>No FPP</th>
-                        <th style={{ width: '20%' }}>Judul FPP</th>
-                        <th style={{ width: '10%' }}>Tanggal Start</th>
-                        <th style={{ width: '10%' }}>Tanggal Selesai</th>
-                        <th style={{ width: '10%' }}>PIC</th>
-                        <th style={{ width: '10%' }}>Durasi</th>
-                        <th style={{ width: '10%' }}>Status</th>
-                        <th style={{ width: '15%' }}>Aksi</th>
+                        <th style={{ minWidth: '50px', maxWidth: '60px' }}>No</th>
+                        <th style={{ minWidth: '200px' }}>Master Project</th>
+                        <th style={{ minWidth: '150px' }}>No FPP</th>
+                        <th style={{ minWidth: '300px' }}>Judul FPP</th>
+                        <th style={{ minWidth: '120px' }}>Skala Project</th>
+                        <th style={{ minWidth: '120px' }}>Dept</th>
+                        <th style={{ minWidth: '150px' }}>TIM</th>
+                        <th style={{ minWidth: '150px' }}>PIC</th>
+                        <th style={{ minWidth: '150px' }}>Jenis Project</th>
+                        <th style={{ minWidth: '120px' }}>Status</th>
+                        <th style={{ minWidth: '120px' }}>Approval Date</th>
+                        <th style={{ minWidth: '100px' }}>Target Quarter</th>
+                        <th style={{ minWidth: '120px' }}>Durasi/Sisa</th>
+                        <th style={{ minWidth: '80px' }}>Done</th>
+                        <th style={{ minWidth: '120px' }}>Actions</th>
                       </tr>
                     </thead>
-                      <tbody>
-                        {displayData.flatMap((group, groupIndex) => 
-                          group.fppEntries.map((fpp, fppIndex) => {
-                            const globalIndex = ((currentPage - 1) * itemsPerPage) + 
-                                              (groupIndex * group.fppEntries.length) + fppIndex + 1;
-                            
-                            return (
-                              <tr key={fpp.id}>
-                                <td className="text-center">{globalIndex}</td>
-                                <td>
-                                  <Badge bg="info" className="d-block mb-1">
-                                    {group.masterProject.masterProjectNumber}
-                                  </Badge>
-                                  <small className="text-muted">
-                                    {group.masterProject.masterProjectName}
-                                  </small>
-                                </td>
-                                <td>
-                                  <Badge bg="dark">{fpp.noFpp}</Badge>
-                                </td>
-                                <td>
-                                  <strong>{fpp.judulFpp}</strong><br />
-                                  <small className="text-muted">
-                                    {fpp.department} | {fpp.tim}
-                                  </small>
-                                </td>
-                                <td>{formatDateDisplay(fpp.approvalDate)}</td>
-                                <td>{formatDateDisplay(fpp.tanggalSelesai)}</td>
-                                <td>
-                                  <div>
-                                    {fpp.pic}
-                                    {!isHead && fpp.pic === userFullTim && (
-                                      <Badge bg="success" className="ms-1">PIC Anda</Badge>
-                                    )}
-                                  </div>
-                                </td>
-                                <td>
-                                  <Badge bg={
-                                    calculateDuration(fpp).includes('Terlambat') ? 'danger' :
-                                    calculateDuration(fpp).includes('hari lagi') ? 'warning' : 'info'
-                                  }>
-                                    {calculateDuration(fpp)}
-                                  </Badge>
-                                </td>
-                                <td>
-                                  <Badge bg={
-                                    fpp.status === 'In Progress' || fpp.status === 'submitted' ? 'warning' :
-                                    fpp.status === 'Done' || fpp.status === 'Selesai' || fpp.status === 'Achieve' ? 'success' :
-                                    fpp.status === 'Hold' ? 'secondary' :
-                                    fpp.status === 'Drop' ? 'danger' : 'light'
-                                  }>
-                                    {fpp.status === 'submitted' ? 'In Progress' : fpp.status || 'Not Yet'}
-                                    {fpp.doneChecklist && ' ✓'}
-                                  </Badge>
-                                </td>
-                                <td>
-                                  <div className="d-flex flex-column gap-2">
-                                    {/* Button Detail */}
+                    <tbody>
+                      {displayData.map((group, groupIndex) => (
+                        group.fppEntries.map((fpp, fppIndex) => {
+                          const overallIndex = ((currentPage - 1) * itemsPerPage) + 
+                                            groupIndex * group.fppEntries.length + 
+                                            fppIndex + 1;
+                          
+                          return (
+                            <tr key={`${fpp.id || fpp.noFpp}-${fppIndex}`}>
+                              <td style={{ maxWidth: '60px', overflow: 'hidden' }}>
+                                {overallIndex}
+                              </td>
+                              <td style={{ maxWidth: '200px' }}>
+                                <div className="text-truncate">
+                                  <strong className="d-block text-truncate">{fpp.masterProjectNumber}</strong>
+                                  <small className="text-muted text-truncate d-block">{fpp.masterProjectName}</small>
+                                </div>
+                              </td>
+                              <td style={{ maxWidth: '150px' }}>
+                                <Badge bg="dark" className="text-truncate d-inline-block" style={{ maxWidth: '100%' }}>
+                                  {fpp.noFpp}
+                                </Badge>
+                              </td>
+                              <td style={{ maxWidth: '300px' }}>
+                                <div className="text-truncate">
+                                  {fpp.judulFpp}
+                                </div>
+                              </td>
+                              <td style={{ maxWidth: '120px' }}>
+                                <Badge bg={
+                                  fpp.skalaProject === 'Small' ? 'success' :
+                                  fpp.skalaProject === 'Medium' ? 'warning' :
+                                  fpp.skalaProject === 'Large' ? 'danger' : 'secondary'
+                                } className="text-truncate d-inline-block" style={{ maxWidth: '100%' }}>
+                                  {fpp.skalaProject || '-'}
+                                </Badge>
+                              </td>
+                              <td style={{ maxWidth: '120px' }}>
+                                <Badge bg="primary" className="text-truncate d-inline-block" style={{ maxWidth: '100%' }}>
+                                  {fpp.department}
+                                </Badge>
+                              </td>
+                              <td style={{ maxWidth: '150px' }}>
+                                <div className="text-truncate">{fpp.tim}</div>
+                              </td>
+                              <td style={{ maxWidth: '150px' }}>
+                                <div className="text-truncate">{fpp.pic}</div>
+                              </td>
+                              <td style={{ maxWidth: '150px' }}>
+                                <Badge bg="info" className="text-truncate d-inline-block" style={{ maxWidth: '100%' }}>
+                                  {fpp.jenisProjectResolved || fpp.jenisProject}
+                                </Badge>
+                              </td>
+                              <td style={{ maxWidth: '120px' }}>
+                                <Badge bg={
+                                  fpp.status === 'In Progress' || fpp.status === 'submitted' ? 'warning' :
+                                  fpp.status === 'Selesai' || fpp.status === 'Done' || fpp.status === 'Achieve' ? 'success' :
+                                  fpp.status === 'Hold' ? 'secondary' :
+                                  fpp.status === 'Drop' ? 'danger' :
+                                  fpp.status === 'Revisi FPP' ? 'info' : 'light'
+                                } className="text-truncate d-inline-block" style={{ maxWidth: '100%' }}>
+                                  {fpp.status === 'submitted' ? 'In Progress' : fpp.status || 'In Progress'}
+                                </Badge>
+                              </td>
+                              <td style={{ maxWidth: '120px' }}>
+                                <div className="text-truncate">{formatDateForDisplay(fpp.approvalDate)}</div>
+                              </td>
+                              <td style={{ maxWidth: '100px' }}>
+                                <Badge bg="dark" className="text-truncate d-inline-block" style={{ maxWidth: '100%' }}>
+                                  {getQuarterFromDate(fpp.approvalDate)}
+                                </Badge>
+                              </td>
+                              <td style={{ maxWidth: '120px' }}>
+                                <Badge bg={
+                                  fpp.status === 'Selesai' || fpp.status === 'Done' ? 'success' :
+                                  calculateDuration(fpp).includes('Terlambat') ? 'danger' : 'warning'
+                                } className="text-truncate d-inline-block" style={{ maxWidth: '100%' }}>
+                                  {calculateDuration(fpp)}
+                                </Badge>
+                              </td>
+                              <td style={{ maxWidth: '80px' }}>
+                                {fpp.doneChecklist ? (
+                                  <Badge bg="success">✓</Badge>
+                                ) : (
+                                  <Badge bg="secondary">-</Badge>
+                                )}
+                              </td>
+                              <td style={{ maxWidth: '120px' }}>
+                                <div className="d-flex gap-1 flex-wrap">
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline-primary"
+                                    onClick={() => handleShowDetail(fpp)}
+                                    className="mb-1"
+                                  >
+                                    Detail
+                                  </Button>
+                                  {(isHead || hasAccessToFpp(fpp)) && (
                                     <Button 
-                                      variant="outline-primary" 
-                                      size="sm"
-                                      onClick={() => handleViewDetail(fpp)}
-                                      className="w-100"
+                                      size="sm" 
+                                      variant="outline-danger"
+                                      onClick={() => deleteFpp(fpp.id, fpp.masterProjectNumber, fpp)}
+                                      className="mb-1"
                                     >
-                                      <strong>Detail</strong>
+                                      Delete
                                     </Button>
-                                    
-                                    {/* Button Delete - hanya untuk HEAD */}
-                                    {isHead && (
-                                      <Button 
-                                        variant="outline-danger" 
-                                        size="sm"
-                                        onClick={() => {
-                                          if (window.confirm(`Yakin hapus FPP: ${fpp.noFpp}?\n\nJudul: ${fpp.judulFpp}\n\nAksi ini tidak dapat dibatalkan!`)) {
-                                            deleteFpp(fpp.id, group.masterProject.masterProjectNumber, fpp);
-                                          }
-                                        }}
-                                        className="w-100"
-                                      >
-                                        <strong>Delete</strong>
-                                      </Button>
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })
-                        )}
-                      </tbody>
-                </Table>
-              </div>
-              {renderPagination()}
-            </>
-          )}
-        </Card.Body>
-      </Card>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      ))}
+                    </tbody>
+                  </Table>
+                </div>
 
-      {/* Modal Detail */}
-      <DetailModal 
-        show={showDetailModal}
-        handleClose={() => setShowDetailModal(false)}
-        fppData={selectedFpp}
-      />
-    </Container>
+                {/* Pagination */}
+                {renderPagination()}
+              </>
+            )}
+          </Card.Body>
+        </Card>
+
+        {/* Detail Modal */}
+        {selectedFpp && (
+          <DetailModal 
+            show={showDetailModal}
+            handleClose={() => setShowDetailModal(false)}
+            fppData={selectedFpp}
+            onDelete={deleteFpp}
+            isHead={isHead}
+            hasAccessToFpp={hasAccessToFpp}
+          />
+        )}
+      </Container>
+    </div>
   );
 }
 

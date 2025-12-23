@@ -2,21 +2,112 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Card, Badge, Table, Button, Form, Modal, Alert, Spinner, Row, Col, InputGroup, Pagination } from 'react-bootstrap';
 import { db } from '../firebase';
-import { collection, getDocs, updateDoc, doc } from 'firebase/firestore';
+import { collection, getDocs, updateDoc, doc, query, where } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
-import { FaFileExcel, FaDownload } from 'react-icons/fa';
+import { FaFileExcel, FaDownload, FaEdit, FaSyncAlt } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 
 function Monitoring() {
   // Auth
-  const { user } = useAuth();
+  const { user, canEditProject, getAllActivePICs } = useAuth();
   
   const [loading, setLoading] = useState(false);
   const [monitoringData, setMonitoringData] = useState([]);
   const [alert, setAlert] = useState({ show: false, message: '', variant: '' });
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
+  const [originalData, setOriginalData] = useState(null);
+
+  const hasChanges = () => {
+    if (!originalData || !selectedItem) return false;
+    
+    // Debug: Tampilkan data untuk comparison
+    console.log('🔍 Checking changes...');
+    console.log('Original data:', {
+      projectDepartments: originalData.projectDepartments,
+      keterangan: originalData.keterangan,
+      timProjectLength: originalData.timProject?.length,
+      tanggalSelesai: originalData.tanggalSelesai,
+      status: originalData.status
+    });
+    
+    console.log('Current form data:', {
+      projectDepartments: formData.projectDepartments,
+      keterangan: formData.keterangan,
+      timProjectLength: formData.timProject?.length,
+      tanggalSelesai: formData.tanggalSelesai,
+      status: formData.status
+    });
+    
+    // 1. Cek perubahan projectDepartments
+    const deptChanged = JSON.stringify(originalData.projectDepartments?.sort()) !== 
+                        JSON.stringify(formData.projectDepartments?.sort());
+    
+    // 2. Cek perubahan keterangan
+    const keteranganChanged = originalData.keterangan !== formData.keterangan;
+    
+    // 3. Cek perubahan tanggalSelesai
+    const tanggalSelesaiChanged = originalData.tanggalSelesai !== formData.tanggalSelesai;
+    
+    // 4. Cek perubahan status
+    const statusChanged = originalData.status !== formData.status;
+    
+    // 5. Cek perubahan timProject
+    let timProjectChanged = false;
+    
+    if (originalData.timProject?.length !== formData.timProject?.length) {
+      timProjectChanged = true;
+    } else {
+      // Bandingkan setiap item timProject
+      for (let i = 0; i < formData.timProject.length; i++) {
+        const originalTim = originalData.timProject[i];
+        const currentTim = formData.timProject[i];
+        
+        if (!originalTim && currentTim) {
+          timProjectChanged = true;
+          break;
+        }
+        
+        if (originalTim && currentTim) {
+          if (originalTim.pic !== currentTim.pic ||
+              JSON.stringify(originalTim.outputs?.sort()) !== JSON.stringify(currentTim.outputs?.sort())) {
+            timProjectChanged = true;
+            break;
+          }
+        }
+      }
+    }
+    
+    const changesExist = deptChanged || keteranganChanged || tanggalSelesaiChanged || timProjectChanged || statusChanged;
+    
+    console.log('Changes detected:', {
+      deptChanged,
+      keteranganChanged,
+      tanggalSelesaiChanged,
+      timProjectChanged,
+      statusChanged,
+      total: changesExist
+    });
+    
+    return changesExist;
+  };
   
+  // Tambahkan fungsi ini di bagian helper functions
+  const formatProjectDepartmentsForDisplay = (departments) => {
+    if (!departments) return 'Tidak ada data';
+    
+    if (Array.isArray(departments)) {
+      return departments.length > 0 ? departments.join(', ') : 'Tidak ada data';
+    }
+    
+    if (typeof departments === 'string') {
+      const deptArray = departments.split(/[, ]+/).filter(d => d.trim() !== '');
+      return deptArray.length > 0 ? deptArray.join(', ') : 'Tidak ada data';
+    }
+    
+    return 'Format tidak dikenali';
+  };
+
   // State untuk edit output
   const [editingOutputIndex, setEditingOutputIndex] = useState(null);
   
@@ -28,6 +119,7 @@ function Monitoring() {
   const [showDropModal, setShowDropModal] = useState(false);
   const [showHoldModal, setShowHoldModal] = useState(false);
   const [showRevisiModal, setShowRevisiModal] = useState(false);
+  const [showRevisiFPPModal, setShowRevisiFPPModal] = useState(false);
   
   // State untuk input modal
   const [doneChecklist, setDoneChecklist] = useState({});
@@ -36,15 +128,30 @@ function Monitoring() {
   const [holdAlasan, setHoldAlasan] = useState('');
   const [revisiAlasan, setRevisiAlasan] = useState('');
   
+  // State untuk modal Revisi FPP (nomor baru)
+  const [revisiFPPData, setRevisiFPPData] = useState({
+    noFppBaru: '',
+    tanggalRevisi: '',
+    alasanRevisi: '',
+    keterangan: ''
+  });
+  
+  const checkIfHeadUser = () => {
+    if (!user) return false;
+    return user.role === 'head' || user.isHead || false;
+  };
+
   // User department
   const [userDepartment, setUserDepartment] = useState('');
+  const [isHeadUser, setIsHeadUser] = useState(false);
   
   // Form state untuk edit modal
   const [formData, setFormData] = useState({
     tanggalSelesai: '',
     keterangan: '',
     status: 'In Progress',
-    timProject: []
+    timProject: [],
+    projectDepartments: []
   });
   
   // Filter states
@@ -73,6 +180,9 @@ function Monitoring() {
     UUD: ['Project Charter', 'UUD', 'Figma', 'PPT', 'Survey'],
     PDM: ['Project Charter', 'Sosialisasi', 'Memo', 'PIR', 'Serah Terima', 'Datamart']
   };
+
+  // Departemen Project yang tersedia
+  const PROJECT_DEPARTMENTS = ['PPD', 'DPA', 'UUD', 'PDM'];
 
   // Checklist options untuk modal Done berdasarkan DEPARTMENT
   const DONE_CHECKLIST_OPTIONS = {
@@ -106,6 +216,8 @@ function Monitoring() {
     ]
   };
 
+
+  // Kemudian di useEffect:
   useEffect(() => {
     fetchMonitoringData();
     fetchAllUsers();
@@ -113,72 +225,59 @@ function Monitoring() {
     if (user) {
       const userDept = user.unit || user.tim || '';
       setUserDepartment(userDept.toUpperCase());
+      
+      // Cek apakah user adalah head
+      const isHead = checkIfHeadUser();
+      setIsHeadUser(isHead);
     }
   }, [user]);
 
-  // ========== FUNGSI BARU: FILTER BERDASARKAN USER DEPARTMENT ==========
+  // ========== FUNGSI UNTUK CEK AKSES EDIT ==========
   
-  // Fungsi untuk memeriksa apakah project terkait dengan department user
-  const isProjectRelatedToUserDepartment = (item) => {
-    if (!userDepartment) return true; // Jika tidak ada user department, tampilkan semua
+  const canUserEditItem = (item) => {
+    // 1. Cek apakah user adalah head (password inputmaster)
+    // Gunakan checkIfHeadUser() langsung daripada state isHeadUser
+    if (checkIfHeadUser()) {
+      return true;
+    }
     
+    // 2. Cek apakah user terlibat dalam project berdasarkan department
     const userDeptUpper = userDepartment.toUpperCase();
     
-    // 1. Cek apakah PIC utama dari department yang sama
+    // Jika user dari department yang sama dengan PIC utama
     if (item.department && item.department.toUpperCase() === userDeptUpper) {
       return true;
     }
     
-    // 2. Cek di timProject apakah ada anggota dari department user
+    // Cek di timProject
     if (item.timProject && Array.isArray(item.timProject)) {
-      const hasRelatedTeamMember = item.timProject.some(tim => {
+      const isInvolved = item.timProject.some(tim => {
         // Cek department di tim project
         if (tim.department && tim.department.toUpperCase() === userDeptUpper) {
           return true;
         }
         
-        // Cek berdasarkan PIC/Nama (mungkin perlu mapping dari allUsers)
-        if (tim.nama || tim.pic) {
-          const memberName = (tim.nama || tim.pic).toLowerCase();
+        // Cek berdasarkan nama PIC
+        if (tim.pic) {
           const userFromDB = allUsers.find(u => 
-            u.nama && u.nama.toLowerCase() === memberName
+            u.nama && u.nama.toLowerCase() === tim.pic.toLowerCase()
           );
           
           if (userFromDB && userFromDB.unit) {
-            const userDeptInDB = userFromDB.unit.toUpperCase();
-            return userDeptInDB === userDeptUpper;
+            const picDept = userFromDB.unit.toUpperCase();
+            return picDept === userDeptUpper;
           }
         }
         
         return false;
       });
       
-      if (hasRelatedTeamMember) {
+      if (isInvolved) {
         return true;
       }
     }
     
-    // 3. Cek berdasarkan PIC utama (mungkin perlu mapping dari allUsers)
-    if (item.pic) {
-      const picName = item.pic.toLowerCase();
-      const userFromDB = allUsers.find(u => 
-        u.nama && u.nama.toLowerCase() === picName
-      );
-      
-      if (userFromDB && userFromDB.unit) {
-        const picDept = userFromDB.unit.toUpperCase();
-        return picDept === userDeptUpper;
-      }
-    }
-    
     return false;
-  };
-
-  // Fungsi untuk memfilter data berdasarkan user department
-  const filterByUserDepartment = (data) => {
-    if (!userDepartment) return data; // Jika tidak ada user department, tampilkan semua
-    
-    return data.filter(item => isProjectRelatedToUserDepartment(item));
   };
 
   const fetchMonitoringData = async () => {
@@ -214,17 +313,20 @@ function Monitoring() {
         return dateB - dateA;
       });
 
-      // Filter data berdasarkan user department
-      const filteredByDepartment = filterByUserDepartment(allData);
+      // Filter data berdasarkan akses user
+      let filteredData = allData;
+      if (!isHeadUser && userDepartment) {
+        filteredData = allData.filter(item => canUserEditItem(item));
+      }
       
-      setMonitoringData(filteredByDepartment);
+      setMonitoringData(filteredData);
       
-      // Extract unique Tim untuk filter (hanya dari data yang sudah difilter)
-      const timList = [...new Set(filteredByDepartment.map(item => item.department).filter(Boolean))].sort();
+      // Extract unique Tim untuk filter
+      const timList = [...new Set(filteredData.map(item => item.department).filter(Boolean))].sort();
       setAvailableTim(timList);
       
-      // Extract unique PICs untuk filter (hanya dari data yang sudah difilter)
-      const pics = [...new Set(filteredByDepartment.map(item => item.pic).filter(Boolean))].sort();
+      // Extract unique PICs untuk filter
+      const pics = [...new Set(filteredData.map(item => item.pic).filter(Boolean))].sort();
       setAvailablePICs(pics);
       
     } catch (error) {
@@ -718,10 +820,11 @@ function Monitoring() {
           'Department': item.department || '-',
           'TIM': item.tim || '-',
           'PIC': item.pic || '-',
+          'Departemen Project': item.projectDepartments?.join(', ') || '-',
           'Jenis Project': item.jenisProjectResolved || item.jenisProject || '-',
           'PIR Type': item.pirType || '-',
           'Status': getStatusBadgeInfo(item).text,
-          'Warna Monitoring': getMonitoringColor(item), // Kolom baru untuk warna
+          'Warna Monitoring': getMonitoringColor(item),
           
           // Dates
           'Tanggal Approval': formatDateForExcel(item.approvalDate),
@@ -767,6 +870,7 @@ function Monitoring() {
         { wch: 10 }, // Department
         { wch: 10 }, // TIM
         { wch: 20 }, // PIC
+        { wch: 20 }, // Departemen Project
         { wch: 20 }, // Jenis Project
         { wch: 10 }, // PIR Type
         { wch: 15 }, // Status
@@ -873,6 +977,7 @@ function Monitoring() {
         keterangan: formData.keterangan || '',
         status: 'Done',
         timProject: formData.timProject,
+        projectDepartments: formData.projectDepartments,
         doneChecklist: {
           department: userDepartment,
           items: doneChecklist,
@@ -980,16 +1085,130 @@ function Monitoring() {
     setLoading(false);
   };
 
-  // ========== HANDLERS UNTUK EDIT MODAL ==========
+  // ========== FUNGSI UNTUK REVISI FPP (GANTI NOMOR) ==========
+  
+  const handleOpenRevisiFPPModal = (item) => {
+    // Cek apakah user boleh melakukan revisi FPP
+    if (!canUserEditItem(item)) {
+      showAlert('Anda tidak memiliki akses untuk merevisi FPP ini.', 'warning');
+      return;
+    }
+    
+    setSelectedItem(item);
+    
+    // Set default data untuk modal revisi FPP
+    const today = new Date().toISOString().split('T')[0];
+    setRevisiFPPData({
+      noFppBaru: item.noFpp || '',
+      tanggalRevisi: today,
+      alasanRevisi: item.revisiAlasan || '',
+      keterangan: item.keterangan || ''
+    });
+    
+    setShowRevisiFPPModal(true);
+  };
+  const handleSubmitRevisiFPP = async () => {
+    if (!revisiFPPData.noFppBaru.trim()) {
+      showAlert('Harap isi nomor FPP baru', 'warning');
+      return;
+    }
+    
+    if (!revisiFPPData.tanggalRevisi) {
+      showAlert('Harap pilih tanggal revisi', 'warning');
+      return;
+    }
+    
+    if (!revisiFPPData.alasanRevisi.trim()) {
+      showAlert('Harap isi alasan revisi FPP', 'warning');
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      // Cek apakah nomor FPP baru sudah digunakan
+      const fppCheckQuery = query(
+        collection(db, 'fpp_monitoring'),
+        where('noFpp', '==', revisiFPPData.noFppBaru)
+      );
+      const fppCheckSnapshot = await getDocs(fppCheckQuery);
+      
+      if (!fppCheckSnapshot.empty) {
+        const existingDoc = fppCheckSnapshot.docs[0];
+        if (existingDoc.id !== selectedItem.id) {
+          showAlert(`No FPP "${revisiFPPData.noFppBaru}" sudah digunakan oleh FPP lain!`, 'danger');
+          setLoading(false);
+          return;
+        }
+      }
+      
+      const updateData = {
+        noFpp: revisiFPPData.noFppBaru,
+        status: 'Revisi FPP',
+        revisiAlasan: revisiFPPData.alasanRevisi,
+        tanggalRevisi: revisiFPPData.tanggalRevisi,
+        keterangan: revisiFPPData.keterangan,
+        updatedAt: new Date()
+      };
+      
+      const docRef = doc(db, 'fpp_monitoring', selectedItem.id);
+      await updateDoc(docRef, updateData);
+      
+      showAlert('Revisi FPP berhasil! Nomor FPP telah diperbarui.', 'success');
+      setShowRevisiFPPModal(false);
+      setRevisiFPPData({
+        noFppBaru: '',
+        tanggalRevisi: '',
+        alasanRevisi: '',
+        keterangan: ''
+      });
+      
+      fetchMonitoringData();
+    } catch (error) {
+      console.error('Error updating FPP revision:', error);
+      showAlert('Error update: ' + error.message, 'danger');
+    }
+    setLoading(false);
+  };
+
+  // Tambahkan fungsi ini untuk debug data Firestore
+  const debugFirestoreData = async () => {
+    try {
+      const snapshot = await getDocs(collection(db, 'fpp_monitoring'));
+      const allData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      console.log('=== DEBUG FIRESTORE DATA ===');
+      allData.forEach(item => {
+        console.log(`Item: ${item.noFpp || item.judulFpp}`);
+        console.log('projectDepartments:', {
+          raw: item.projectDepartments,
+          type: typeof item.projectDepartments,
+          isArray: Array.isArray(item.projectDepartments),
+          value: item.projectDepartments
+        });
+        console.log('---');
+      });
+    } catch (error) {
+      console.error('Debug error:', error);
+    }
+  };
+
+// Panggil di useEffect atau buat tombol untuk debug
+// useEffect(() => {
+//   debugFirestoreData();
+// }, []);
 
   const handleOpenEditModal = (item) => {
     // Cek apakah user boleh mengedit project ini
-    if (!isProjectRelatedToUserDepartment(item)) {
+    if (!canUserEditItem(item)) {
       showAlert('Anda tidak memiliki akses untuk mengedit project ini. Hanya user dari department terkait yang dapat mengedit.', 'warning');
       return;
     }
     
     console.log('Opening edit modal for:', item.noFpp);
+    console.log('Raw projectDepartments from database:', item.projectDepartments);
     
     const itemStatus = item.status === 'submitted' ? 'In Progress' : item.status || 'In Progress';
     
@@ -1019,25 +1238,56 @@ function Monitoring() {
       ? item.timProject.map(tim => ({
           department: tim.department || item.department || '',
           tim: tim.tim || item.tim || '',
-          nama: tim.pic || tim.nama || '',
+          pic: tim.pic || tim.nama || '',
           peran: tim.peran || '',
           outputs: Array.isArray(tim.outputs) ? tim.outputs : []
         }))
       : [{ 
           department: item.department || '',
           tim: item.tim || '',
-          nama: '', 
+          pic: item.pic || '', 
           peran: '', 
           outputs: [] 
         }];
     
-    setSelectedItem(item);
-    setFormData({
-      tanggalSelesai: formatDateForInput(item.tanggalSelesai),
+    // Handle projectDepartments
+    let projectDepartmentsData = [];
+    
+    if (item.projectDepartments) {
+      if (Array.isArray(item.projectDepartments)) {
+        projectDepartmentsData = item.projectDepartments
+          .filter(dept => dept && dept.trim() !== '')
+          .map(dept => dept.trim().toUpperCase());
+      } else if (typeof item.projectDepartments === 'string') {
+        projectDepartmentsData = item.projectDepartments
+          .split(/[,]/)
+          .map(dept => dept.trim().toUpperCase())
+          .filter(dept => dept !== '');
+      }
+    }
+    
+    // Format tanggalSelesai dari database
+    const tanggalSelesaiFromDB = formatDateForInput(item.tanggalSelesai);
+    
+    const modalFormData = {
+      tanggalSelesai: tanggalSelesaiFromDB,
       keterangan: item.keterangan || '',
-      status: itemStatus,
-      timProject: timProjectData
+      status: itemStatus, // Pastikan status juga disertakan
+      timProject: timProjectData,
+      projectDepartments: projectDepartmentsData
+    };
+    
+    // ✅ SET ORIGINAL DATA untuk comparison - TAMBAHKAN STATUS
+    setOriginalData({
+      projectDepartments: [...projectDepartmentsData],
+      keterangan: item.keterangan || '',
+      timProject: JSON.parse(JSON.stringify(timProjectData)),
+      tanggalSelesai: tanggalSelesaiFromDB,
+      status: itemStatus // ✅ TAMBAHKAN INI
     });
+    
+    setSelectedItem(item);
+    setFormData(modalFormData);
     setEditingOutputIndex(null);
     setShowEditModal(true);
   };
@@ -1049,7 +1299,7 @@ function Monitoring() {
       newTimProject[index] = { 
         department: selectedItem?.department || '',
         tim: selectedItem?.tim || '',
-        nama: '', 
+        pic: '', 
         peran: '', 
         outputs: [] 
       };
@@ -1086,11 +1336,41 @@ function Monitoring() {
     }));
   };
 
+  const handleProjectDepartmentChange = (dept, isChecked) => {
+    setFormData(prev => {
+      const deptUpper = dept.toUpperCase();
+      
+      if (isChecked) {
+        // Cek apakah sudah ada (case insensitive)
+        const alreadyExists = prev.projectDepartments.some(
+          existingDept => existingDept.toUpperCase() === deptUpper
+        );
+        
+        if (!alreadyExists) {
+          return {
+            ...prev,
+            projectDepartments: [...prev.projectDepartments, dept]
+          };
+        }
+        return prev;
+      } else {
+        return {
+          ...prev,
+          projectDepartments: prev.projectDepartments.filter(
+            d => d.toUpperCase() !== deptUpper
+          )
+        };
+      }
+    });
+  };
+
   const handleStatusChange = (e) => {
     const newStatus = e.target.value;
     
-    // Validasi tanggal selesai untuk status selain "In Progress"
-    if (newStatus !== 'In Progress' && !formData.tanggalSelesai) {
+    // ✅ PERBAIKAN: Hanya validasi tanggal selesai jika mengubah status DARI "In Progress"
+    const isChangingFromInProgress = formData.status === 'In Progress';
+    
+    if (isChangingFromInProgress && newStatus !== 'In Progress' && !formData.tanggalSelesai) {
       showAlert('Harap isi tanggal selesai terlebih dahulu sebelum mengubah status', 'warning');
       return;
     }
@@ -1111,24 +1391,41 @@ function Monitoring() {
   };
 
   const handleSubmitUpdate = async () => {
-    // Validasi: jika status bukan In Progress, wajib ada tanggal selesai
+    // ✅ PERBAIKAN: Validasi berdasarkan perubahan, bukan hanya tanggal selesai
+    const changes = hasChanges();
+    
+    if (!changes) {
+      showAlert('Tidak ada perubahan yang disimpan.', 'info');
+      return;
+    }
+    
+    // ✅ PERBAIKAN: Hanya wajibkan tanggal selesai jika mengubah status dari "In Progress"
     if (formData.status !== 'In Progress' && !formData.tanggalSelesai) {
       showAlert('Harap isi tanggal selesai untuk status ' + formData.status, 'warning');
       return;
     }
     
+    // ✅ PERBAIKAN: Jika status tetap "In Progress" tapi ada perubahan lainnya, tetap boleh simpan
     setLoading(true);
     try {
       // Data yang akan diupdate
       const updateData = {
-        tanggalSelesai: formData.status === 'In Progress' ? null : formData.tanggalSelesai,
+        // ✅ Tanggal selesai hanya diupdate jika diisi
+        ...(formData.tanggalSelesai && { tanggalSelesai: formData.tanggalSelesai }),
+        
+        // ✅ Selalu update keterangan jika ada perubahan
         keterangan: formData.keterangan || '',
+        
+        // ✅ Selalu update status
         status: formData.status,
+        
+        // ✅ Selalu update timProject dan projectDepartments jika ada perubahan
         timProject: formData.timProject,
+        projectDepartments: formData.projectDepartments,
         updatedAt: new Date()
       };
       
-      // Tambahkan alasan jika ada
+      // Jika status berubah ke "Drop", "Hold", atau "Revisi FPP", tambahkan alasan
       if (formData.status === 'Drop' && dropAlasan) {
         updateData.dropAlasan = dropAlasan;
       } else if (formData.status === 'Hold' && holdAlasan) {
@@ -1137,10 +1434,12 @@ function Monitoring() {
         updateData.revisiAlasan = revisiAlasan;
       }
       
+      console.log('🔄 Updating data:', updateData);
+      
       const docRef = doc(db, 'fpp_monitoring', selectedItem.id);
       await updateDoc(docRef, updateData);
       
-      showAlert(`Status berhasil diupdate ke ${formData.status}!`, 'success');
+      showAlert(`Perubahan berhasil disimpan! Status: ${formData.status}`, 'success');
       
       // Reset semua modal
       setShowEditModal(false);
@@ -1153,6 +1452,7 @@ function Monitoring() {
       setDropAlasan('');
       setHoldAlasan('');
       setRevisiAlasan('');
+      setOriginalData(null); // Reset original data
       
       // Refresh data
       fetchMonitoringData();
@@ -1162,7 +1462,6 @@ function Monitoring() {
     }
     setLoading(false);
   };
-
   // ========== PAGINATION FUNCTIONS ==========
 
   const filteredData = applyFilters();
@@ -1238,116 +1537,133 @@ function Monitoring() {
 
   // ========== RENDER FUNCTIONS ==========
 
-  const renderTableSection = (title, data, groupName, color, showCount = true) => {
-    const paginatedData = getPaginatedData(data, groupName);
-    const currentPage = currentPages[groupName] || 1;
-    
-    if (data.length === 0) return null;
-    
-    return (
-      <Card className="mb-4">
-        <Card.Header className="d-flex justify-content-between align-items-center">
-          <div className="mb-0 fw-semibold">
-            {title} {showCount && <Badge bg="light" text="dark" className="ms-2">{data.length}</Badge>}
-          </div>
-          <div className="d-flex align-items-center">
-            <Badge bg="light" text="dark" className="fs-6 me-3">
-              Halaman {currentPage} dari {Math.ceil(data.length / itemsPerPage)}
-            </Badge>
-            <Badge bg="light" text="dark" className="fs-6">
-              Total: {data.length}
-            </Badge>
-          </div>
-        </Card.Header>
-        <Card.Body className="p-0">
-          <div className="table-responsive">
-            <Table hover className="mb-0">
-              <thead className="table-light">
-                <tr>
-                  <th style={{ width: '50px' }}>No</th>
-                  <th>No FPP</th>
-                  <th>Judul FPP</th>
-                  <th>Tanggal Target</th>
-                  <th>Monitoring</th>
-                  <th>Status</th>
-                  <th>PIC</th>
-                  <th>Department</th>
-                  <th style={{ width: '80px' }}>Aksi</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paginatedData.map((item, index) => {
-                  const targetDate = findLastTargetDate(item.rencanaPenugasan);
-                  const statusBadge = getStatusBadgeInfo(item);
-                  const globalIndex = (currentPage - 1) * itemsPerPage + index + 1;
-                  
-                  return (
-                    <tr key={item.id} className="align-middle">
-                      <td className="text-center">{globalIndex}</td>
-                      <td>
-                        <div className="d-flex flex-column">
-                          <div className="mb-1 fw-bold">
-                            {item.noFpp || '-'}
+  // ========== RENDER FUNCTIONS ==========
+
+    const renderTableSection = (title, data, groupName, color, showCount = true) => {
+      const paginatedData = getPaginatedData(data, groupName);
+      const currentPage = currentPages[groupName] || 1;
+      
+      if (data.length === 0) return null;
+      
+      return (
+        <Card className="mb-4">
+          <Card.Header className="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div className="mb-0 fw-semibold">
+              {title} {showCount && <Badge bg="light" text="dark" className="ms-2">{data.length}</Badge>}
+            </div>
+            <div className="d-flex align-items-center gap-2 flex-wrap">
+              <Badge bg="light" text="dark" className="fs-6">
+                Halaman {currentPage} dari {Math.ceil(data.length / itemsPerPage)}
+              </Badge>
+              <Badge bg="light" text="dark" className="fs-6">
+                Total: {data.length}
+              </Badge>
+            </div>
+          </Card.Header>
+          <Card.Body className="p-0">
+            <div className="table-responsive" style={{ overflowX: 'auto' }}>
+              <Table hover className="mb-0" style={{ minWidth: '1200px' }}>
+                <thead className="table-light">
+                  <tr>
+                    <th style={{ width: '50px', minWidth: '50px' }}>No</th>
+                    <th style={{ minWidth: '120px' }}>No FPP</th>
+                    <th style={{ minWidth: '200px' }}>Judul FPP</th>
+                    <th style={{ minWidth: '150px' }}>Tanggal Target</th>
+                    <th style={{ minWidth: '150px' }}>Monitoring</th>
+                    <th style={{ minWidth: '100px' }}>Status</th>
+                    <th style={{ minWidth: '120px' }}>PIC</th>
+                    <th style={{ minWidth: '100px' }}>Department</th>
+                    <th style={{ width: '200px', minWidth: '200px' }}>Aksi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedData.map((item, index) => {
+                    const targetDate = findLastTargetDate(item.rencanaPenugasan);
+                    const statusBadge = getStatusBadgeInfo(item);
+                    const globalIndex = (currentPage - 1) * itemsPerPage + index + 1;
+                    const canEdit = canUserEditItem(item);
+                    
+                    return (
+                      <tr key={item.id} className="align-middle">
+                        <td className="text-center">{globalIndex}</td>
+                        <td>
+                          <div className="text-truncate" style={{ maxWidth: '120px' }} title={item.noFpp || '-'}>
+                            <span className="fw-bold">{item.noFpp || '-'}</span>
                           </div>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="d-flex flex-column">
-                          <strong>{item.judulFpp || '-'}</strong>
-                          <small className="text-muted">
-                            {item.department || '-'}
-                          </small>
-                        </div>
-                      </td>
-                      <td>
-                        {targetDate ? (
-                          <div className="d-flex flex-column">
-                            <span className="fw-bold">{formatDate(targetDate)}</span>
-                            <small className="text-muted">
-                              Approval: {formatDate(item.approvalDate)}
+                        </td>
+                        <td>
+                          <div>
+                            <div className="text-truncate" style={{ maxWidth: '200px' }} title={item.judulFpp || '-'}>
+                              <strong>{item.judulFpp || '-'}</strong>
+                            </div>
+                            <small className="text-muted text-truncate d-block" style={{ maxWidth: '200px' }}>
+                              {item.department || '-'}
                             </small>
                           </div>
-                        ) : (
-                          <span className="text-muted">-</span>
-                        )}
-                      </td>
-                      <td className='fs-7 fw-semibold'>
-                        {renderMonitoringText(item)}
-                      </td>
-                      <td>
-                        <Badge bg={statusBadge.color}>
-                          {statusBadge.text}
-                        </Badge>
-                      </td>
-                      <td>
-                        <div className="d-flex flex-column">
-                          <span className="fw-bold">{item.pic || '-'}</span>
-                        </div>
-                      </td>
-                      <td>
-                        <Badge bg="info">{item.department || '-'}</Badge>
-                      </td>
-                      <td>
-                        <Button
-                          size="sm"
-                          variant="primary"
-                          onClick={() => handleOpenEditModal(item)}
-                          title="Edit Monitoring"
-                        >
-                          Edit
-                        </Button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </Table>
-          </div>
-          {renderPaginationForGroup(data, groupName)}
-        </Card.Body>
-      </Card>
-    );
-  };
+                        </td>
+                        <td>
+                          {targetDate ? (
+                            <div style={{ whiteSpace: 'nowrap' }}>
+                              <div className="fw-bold">{formatDate(targetDate)}</div>
+                              <small className="text-muted d-block">
+                                Approval: {formatDate(item.approvalDate)}
+                              </small>
+                            </div>
+                          ) : (
+                            <span className="text-muted">-</span>
+                          )}
+                        </td>
+                        <td className='fs-7 fw-semibold' style={{ whiteSpace: 'nowrap' }}>
+                          {renderMonitoringText(item)}
+                        </td>
+                        <td>
+                          <Badge bg={statusBadge.color} style={{ whiteSpace: 'nowrap' }}>
+                            {statusBadge.text}
+                          </Badge>
+                        </td>
+                        <td>
+                          <div className="text-truncate" style={{ maxWidth: '120px' }} title={item.pic || '-'}>
+                            <span className="fw-bold">{item.pic || '-'}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <Badge bg="info" style={{ whiteSpace: 'nowrap' }}>{item.department || '-'}</Badge>
+                        </td>
+                        <td>
+                          <div className="d-flex gap-1 flex-nowrap">
+                            <Button
+                              size="sm"
+                              variant="primary"
+                              onClick={() => handleOpenEditModal(item)}
+                              title="Edit Monitoring"
+                              disabled={!canEdit}
+                              style={{ opacity: canEdit ? 1 : 0.5, whiteSpace: 'nowrap' }}
+                            >
+                              <FaEdit /> Edit
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="info"
+                              onClick={() => handleOpenRevisiFPPModal(item)}
+                              title="Revisi FPP (Ganti Nomor)"
+                              disabled={!canEdit}
+                              style={{ opacity: canEdit ? 1 : 0.5, whiteSpace: 'nowrap' }}
+                            >
+                              <FaSyncAlt /> Revisi
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </Table>
+            </div>
+            {renderPaginationForGroup(data, groupName)}
+          </Card.Body>
+        </Card>
+      );
+    };
 
   // ========== MODAL RENDER FUNCTIONS ==========
 
@@ -1555,7 +1871,7 @@ function Monitoring() {
   const renderRevisiModal = () => (
     <Modal show={showRevisiModal} onHide={() => setShowRevisiModal(false)}>
       <Modal.Header closeButton>
-        <Modal.Title>Revisi FPP</Modal.Title>
+        <Modal.Title>Revisi FPP (Status)</Modal.Title>
       </Modal.Header>
       <Modal.Body>
         <Alert variant="info">
@@ -1606,10 +1922,118 @@ function Monitoring() {
     </Modal>
   );
 
+  const renderRevisiFPPModal = () => {
+    if (!selectedItem) return null;
+    
+    return (
+      <Modal show={showRevisiFPPModal} onHide={() => setShowRevisiFPPModal(false)} size="lg">
+        <Modal.Header closeButton>
+          <Modal.Title>Revisi FPP - Ganti Nomor</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <Alert variant="warning">
+            <strong>Perhatian:</strong> Anda akan mengganti nomor FPP untuk project ini.
+            <br />
+            <small>Pastikan nomor FPP baru belum digunakan oleh project lain.</small>
+          </Alert>
+          
+          <Form.Group className="mb-3">
+            <Form.Label>Nomor FPP Lama</Form.Label>
+            <Form.Control
+              type="text"
+              value={selectedItem.noFpp || '-'}
+              readOnly
+              style={{ backgroundColor: '#e9ecef' }}
+            />
+          </Form.Group>
+          
+          <Form.Group className="mb-3">
+            <Form.Label>Nomor FPP Baru <span className="text-danger">*</span></Form.Label>
+            <Form.Control
+              type="text"
+              placeholder="Masukkan nomor FPP baru..."
+              value={revisiFPPData.noFppBaru}
+              onChange={(e) => setRevisiFPPData(prev => ({ ...prev, noFppBaru: e.target.value }))}
+              required
+            />
+          </Form.Group>
+          
+          <Form.Group className="mb-3">
+            <Form.Label>Tanggal Revisi <span className="text-danger">*</span></Form.Label>
+            <Form.Control
+              type="date"
+              value={revisiFPPData.tanggalRevisi}
+              onChange={(e) => setRevisiFPPData(prev => ({ ...prev, tanggalRevisi: e.target.value }))}
+              required
+            />
+          </Form.Group>
+          
+          <Form.Group className="mb-3">
+            <Form.Label>Alasan Revisi FPP <span className="text-danger">*</span></Form.Label>
+            <Form.Control
+              as="textarea"
+              rows={3}
+              value={revisiFPPData.alasanRevisi}
+              onChange={(e) => setRevisiFPPData(prev => ({ ...prev, alasanRevisi: e.target.value }))}
+              required
+            />
+          </Form.Group>
+          
+          <Form.Group className="mb-3">
+            <Form.Label>Keterangan Tambahan</Form.Label>
+            <Form.Control
+              as="textarea"
+              rows={2}
+              value={revisiFPPData.keterangan}
+              onChange={(e) => setRevisiFPPData(prev => ({ ...prev, keterangan: e.target.value }))}
+            />
+          </Form.Group>
+          
+          <Alert variant="info" className="mt-3">
+            <i className="bi bi-info-circle me-2"></i>
+            Setelah direvisi, project akan berstatus <Badge bg="info">Revisi FPP</Badge>
+            dan nomor FPP akan diperbarui di semua sistem.
+          </Alert>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button 
+            variant="secondary" 
+            onClick={() => {
+              setShowRevisiFPPModal(false);
+              setRevisiFPPData({
+                noFppBaru: '',
+                tanggalRevisi: '',
+                alasanRevisi: '',
+                keterangan: ''
+              });
+            }}
+            disabled={loading}
+          >
+            Batal
+          </Button>
+          <Button 
+            variant="warning" 
+            onClick={handleSubmitRevisiFPP}
+            disabled={loading || !revisiFPPData.noFppBaru.trim() || !revisiFPPData.tanggalRevisi || !revisiFPPData.alasanRevisi.trim()}
+          >
+            {loading ? (
+              <>
+                <Spinner size="sm" animation="border" className="me-2" />
+                Proses...
+              </>
+            ) : (
+              'Simpan Revisi FPP'
+            )}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+    );
+  };
+
   const renderEditModal = () => {
     if (!selectedItem) return null;
     
-    const isCurrentUserAllowed = isProjectRelatedToUserDepartment(selectedItem);
+    const canEdit = canUserEditItem(selectedItem);
     const allPICs = getAllAvailablePICs();
     
     // Format tanggal untuk input type="date"
@@ -1650,6 +2074,33 @@ function Monitoring() {
             </div>
           </Modal.Title>
         </Modal.Header>
+        {hasChanges() && (
+          <div className="bg-warning bg-opacity-10 p-2 border-start border-warning border-4 mx-3 mt-2">
+            <div className="d-flex align-items-center">
+              <i className="bi bi-exclamation-circle-fill text-warning me-2"></i>
+              <span className="small">
+                <strong>Ada perubahan yang belum disimpan:</strong> 
+                {formData.projectDepartments?.length !== originalData?.projectDepartments?.length && " Departemen,"}
+                {formData.keterangan !== originalData?.keterangan && " Keterangan,"}
+                {formData.timProject?.length !== originalData?.timProject?.length && " Tim Project,"}
+                {formData.tanggalSelesai !== originalData?.tanggalSelesai && " Tanggal Selesai,"}
+                {formData.status !== originalData?.status && ` Status (${originalData?.status} → ${formData.status})`}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Indikator Validasi Tanggal Selesai jika status berubah */}
+        {formData.status !== 'In Progress' && !formData.tanggalSelesai && (
+          <div className="bg-danger bg-opacity-10 p-2 border-start border-danger border-4 mx-3 mt-2">
+            <div className="d-flex align-items-center">
+              <i className="bi bi-exclamation-triangle-fill text-danger me-2"></i>
+              <span className="small">
+                <strong>Peringatan:</strong> Status diubah ke "{formData.status}", harap isi tanggal selesai.
+              </span>
+            </div>
+          </div>
+        )}
         <Modal.Body style={{ maxHeight: '80vh', overflowY: 'auto' }}>
           {/* Tampilkan data FPP lengkap (readonly) */}
           <Card className="mb-4">
@@ -1750,7 +2201,7 @@ function Monitoring() {
           </Card>
           
           {/* Info Akses User */}
-          {!isCurrentUserAllowed && (
+          {!canEdit && (
             <Alert variant="danger" className="mb-4">
               <i className="bi bi-exclamation-triangle-fill me-2"></i>
               <strong>Akses Dibatasi:</strong> Anda hanya dapat melihat data project ini, 
@@ -1758,9 +2209,80 @@ function Monitoring() {
             </Alert>
           )}
           
-          {isCurrentUserAllowed ? (
+          {canEdit ? (
             <>
               <h5 className="mb-3">Edit Monitoring</h5>
+              
+              {/* Di dalam renderEditModal, tambahkan debug info */}
+              <Card className="mb-4">
+                <Card.Header className="bg-light">
+                  <h6 className="mb-0">Departemen Project</h6>
+                </Card.Header>
+                <Card.Body>
+                  <Form.Group>
+                    <Form.Label className="fw-bold mb-3">Pilih Departemen yang Terlibat:</Form.Label>
+
+                    
+                    {/* Tampilkan data sebelumnya */}
+                    <Alert variant="info" className="mb-3 p-2">
+                      <small>
+                        <strong>Data sebelumnya:</strong> {
+                          selectedItem.projectDepartments 
+                            ? (Array.isArray(selectedItem.projectDepartments) 
+                                ? selectedItem.projectDepartments.join(', ') 
+                                : selectedItem.projectDepartments)
+                            : 'Tidak ada data'
+                        }
+                      </small>
+                    </Alert>
+                    
+                    <div className="d-flex flex-wrap gap-4 mt-2">
+                      {PROJECT_DEPARTMENTS.map((dept) => {
+                        const isChecked = formData.projectDepartments.some(
+                          d => d.toUpperCase() === dept.toUpperCase()
+                        );
+                        
+                        console.log(`Checkbox ${dept}:`, {
+                          dept,
+                          formData: formData.projectDepartments,
+                          isChecked,
+                          includes: formData.projectDepartments.includes(dept)
+                        });
+                        
+                        return (
+                          <Form.Check
+                            key={dept}
+                            type="checkbox"
+                            id={`project-dept-edit-${dept}`}
+                            label={dept}
+                            checked={isChecked}
+                            onChange={(e) => handleProjectDepartmentChange(dept, e.target.checked)}
+                          />
+                        );
+                      })}
+                    </div>
+                    
+                    {/* Info checkbox terpilih */}
+                    {formData.projectDepartments.length > 0 && (
+                      <Alert variant="success" className="mt-3 p-2">
+                        <small>
+                          <strong>Terpilih untuk update:</strong> {formData.projectDepartments.join(', ')}
+                        </small>
+                      </Alert>
+                    )}
+                    
+                    {/* Info jika tidak ada data */}
+                    {formData.projectDepartments.length === 0 && (
+                      <Alert variant="warning" className="mt-2 p-2">
+                        <small>
+                          <i className="bi bi-exclamation-triangle me-1"></i>
+                          Belum ada departemen yang dipilih
+                        </small>
+                      </Alert>
+                    )}
+                  </Form.Group>
+                </Card.Body>
+              </Card>
               
               {/* SECTION KETERANGAN */}
               <Card className="mb-4">
@@ -1773,13 +2295,9 @@ function Monitoring() {
                     <Form.Control
                       as="textarea"
                       rows={4}
-                      placeholder="Tambahkan keterangan atau catatan tentang progress project..."
                       value={formData.keterangan}
                       onChange={(e) => setFormData(prev => ({ ...prev, keterangan: e.target.value }))}
                     />
-                    <Form.Text className="text-muted">
-                      Tambahkan informasi seperti progress terbaru, kendala, atau catatan penting lainnya
-                    </Form.Text>
                   </Form.Group>
                 </Card.Body>
               </Card>
@@ -1795,7 +2313,7 @@ function Monitoring() {
                       setFormData(prev => ({
                         ...prev,
                         timProject: [...prev.timProject, { 
-                          nama: '', 
+                          pic: '', 
                           peran: '', 
                           outputs: [],
                           department: selectedItem.department || '',
@@ -1855,8 +2373,8 @@ function Monitoring() {
                             <Form.Group>
                               <Form.Label>PIC <span className="text-danger">*</span></Form.Label>
                               <Form.Select
-                                value={tim.nama || ''}
-                                onChange={(e) => handleTimProjectChange(timIndex, 'nama', e.target.value)}
+                                value={tim.pic || ''}
+                                onChange={(e) => handleTimProjectChange(timIndex, 'pic', e.target.value)}
                                 required
                               >
                                 <option value="">Pilih PIC...</option>
@@ -1864,19 +2382,6 @@ function Monitoring() {
                                   <option key={pic} value={pic}>{pic}</option>
                                 ))}
                               </Form.Select>
-                            </Form.Group>
-                          </Col>
-                        </Row>
-                        
-                        <Row className="align-items-center mb-3">
-                          <Col md={8}>
-                            <Form.Group>
-                              <Form.Control
-                                type="text"
-                                placeholder="Contoh: Developer, Analyst, Tester, Supervisor"
-                                value={tim.peran || ''}
-                                onChange={(e) => handleTimProjectChange(timIndex, 'peran', e.target.value)}
-                              />
                             </Form.Group>
                           </Col>
                         </Row>
@@ -2041,6 +2546,13 @@ function Monitoring() {
                             formData.timProject.reduce((total, tim) => total + (tim.outputs?.length || 0), 0)
                           } item
                         </li>
+                        <li>
+                          <strong>Departemen Project:</strong> {
+                            formData.projectDepartments.length > 0 
+                              ? formData.projectDepartments.join(', ')
+                              : 'Belum dipilih'
+                          }
+                        </li>
                       </ul>
                     </Col>
                     <Col md={6}>
@@ -2059,6 +2571,12 @@ function Monitoring() {
                             <Badge bg="warning" className="ms-2">⚠️ Tanggal selesai belum diisi</Badge>
                           )}
                         </li>
+                        <li>
+                          <strong>Akses Edit:</strong> 
+                          <Badge bg="success" className="ms-2">
+                            {isHeadUser ? 'HEAD User' : 'Department Terkait'}
+                          </Badge>
+                        </li>
                       </ul>
                     </Col>
                   </Row>
@@ -2069,7 +2587,7 @@ function Monitoring() {
             <Alert variant="info" className="text-center py-4">
               <i className="bi bi-eye fs-2 text-info"></i>
               <h5 className="mt-3">Mode View Only</h5>
-              <p className="mb-0">Anda hanya dapat melihat data project ini karena bukan dari department terkait.</p>
+              <p className="mb-0">Anda hanya dapat melihat data project ini karena bukan dari department terkait atau bukan HEAD user.</p>
             </Alert>
           )}
         </Modal.Body>
@@ -2079,16 +2597,22 @@ function Monitoring() {
             onClick={() => {
               setShowEditModal(false);
               setEditingOutputIndex(null);
+              setOriginalData(null); // Reset original data saat tutup
             }}
             disabled={loading}
           >
             Tutup
           </Button>
-          {isCurrentUserAllowed && (
+          {canEdit && (
             <Button 
               variant="primary" 
               onClick={handleSubmitUpdate}
-              disabled={loading || !isTanggalSelesaiFilled}
+              disabled={loading || (!hasChanges() && !formData.tanggalSelesai)} // ✅ Perbaikan kondisi
+              title={
+                !hasChanges() && !formData.tanggalSelesai 
+                  ? "Tidak ada perubahan yang perlu disimpan atau tanggal selesai belum diisi" 
+                  : "Simpan perubahan"
+              }
             >
               {loading ? (
                 <>
@@ -2122,16 +2646,19 @@ function Monitoring() {
         </Alert>
       )}
       
+      {/* Di dalam Container, tambahkan tombol debug */}
       <div className="d-flex justify-content-between align-items-center mb-4">
         <div>
           <div className="h3 fw-semibold fs-5">Monitoring Project</div>
           {userDepartment && (
             <div className="text-muted small">
-              Filter berdasarkan department: <Badge bg="info">{userDepartment}</Badge>
+              Akses: <Badge bg={isHeadUser ? "danger" : "info"}>{isHeadUser ? "HEAD User (Full Access)" : `Department: ${userDepartment}`}</Badge>
             </div>
           )}
         </div>
         <div className="d-flex gap-2">
+          {/* Tombol debug sementara */}
+          
           <Button 
             variant="success"
             onClick={exportToExcel}
@@ -2140,7 +2667,7 @@ function Monitoring() {
           >
             <FaFileExcel /> Export Excel
           </Button>
-          <Button 
+          {/* <Button 
             variant="outline-primary" 
             onClick={fetchMonitoringData}
             disabled={loading}
@@ -2151,9 +2678,9 @@ function Monitoring() {
                 Loading...
               </>
             ) : (
-              'Refresh Data'
+              <><FaDownload /> Refresh Data</>
             )}
-          </Button>
+          </Button> */}
         </div>
       </div>
       
@@ -2284,6 +2811,7 @@ function Monitoring() {
       {renderDropModal()}
       {renderHoldModal()}
       {renderRevisiModal()}
+      {renderRevisiFPPModal()}
     </Container>
   );
 }
