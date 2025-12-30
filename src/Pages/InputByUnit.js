@@ -166,7 +166,6 @@ function RegisterFPP() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // =============== VALIDATION FUNCTIONS ===============
   const validateForm = () => {
     const errors = {};
     
@@ -178,9 +177,11 @@ function RegisterFPP() {
       errors.masterProjectName = 'Judul Project wajib diisi';
     }
 
-    if (formData.projectDepartments.length === 0) {
-      errors.projectDepartments = 'Pilih minimal satu departemen yang terlibat';
-    }
+    // 🔥 HAPUS validasi projectDepartments di RegisterFPP
+    // Karena akan diambil otomatis dari Master Project
+    // if (formData.projectDepartments.length === 0) {
+    //   errors.projectDepartments = 'Pilih minimal satu departemen yang terlibat';
+    // }
     
     // Department validation
     if (!formData.department) {
@@ -491,7 +492,9 @@ function RegisterFPP() {
         masterProjectNumber: value,
         masterProjectName: selectedProject ? selectedProject.namaProject : '',
         // 🔥 Ambil skala dari project yang dipilih
-        skalaProject: selectedProject ? selectedProject.skalaProject || '' : ''
+        skalaProject: selectedProject ? selectedProject.skalaProject || '' : '',
+        // 🔥 Ambil projectDepartments dari Master Project
+        projectDepartments: selectedProject ? selectedProject.projectDepartments || [] : []
       }));
     }
     else if (name === 'jenisProject') {
@@ -1496,13 +1499,13 @@ function RegisterFPP() {
                         onChange={(selected) => {
                           if (selected && selected.length > 0) {
                             const selectedValue = selected[0];
-                            
                           if (typeof selectedValue === 'string') {
                             setFormData(prev => ({
                               ...prev,
                               masterProjectNumber: selectedValue,
                               masterProjectName: '',
-                              skalaProject: ''
+                              skalaProject: '',
+                              projectDepartments: [] // Reset projectDepartments
                             }));
                           } else {
                             const selectedProject = projects.find(p => 
@@ -1515,7 +1518,9 @@ function RegisterFPP() {
                               masterProjectNumber: selectedValue.label,
                               masterProjectName: selectedProject ? selectedProject.namaProject : '',
                               // 🔥 Ambil skala dari project yang dipilih
-                              skalaProject: selectedProject ? selectedProject.skalaProject || '' : ''
+                              skalaProject: selectedProject ? selectedProject.skalaProject || '' : '',
+                              // 🔥 Ambil projectDepartments dari Master Project
+                              projectDepartments: selectedProject ? selectedProject.projectDepartments || [] : []
                             }));
                           }
                           } else {
@@ -1577,38 +1582,6 @@ function RegisterFPP() {
                 </Row>
               </Card.Body>
             </Card>
-
-            {/* Departemen Project Section */}
-            <Card className="mb-4 border-0">
-              <strong className='ms-3'>Departemen Project <span className="text-danger">*</span></strong>
-              <Card.Body>
-                <Form.Group>
-                  <div className="d-flex flex-wrap gap-4 mt-2">
-                    {PROJECT_DEPARTMENTS.map((dept) => (
-                      <Form.Check
-                        key={dept}
-                        type="checkbox"
-                        id={`project-dept-${dept}`}
-                        label={dept}
-                        checked={formData.projectDepartments.includes(dept)}
-                        onChange={(e) => handleProjectDepartmentChange(dept, e.target.checked)}
-                      />
-                    ))}
-                  </div>
-                  {formErrors.projectDepartments && (
-                    <Form.Text className="text-danger">{formErrors.projectDepartments}</Form.Text>
-                  )}
-                  {formData.projectDepartments.length > 0 && (
-                    <div className="mt-2">
-                      <small className="text-muted">
-                        Terpilih: {formData.projectDepartments.join(', ')}
-                      </small>
-                    </div>
-                  )}
-                </Form.Group>
-              </Card.Body>
-            </Card>
-
             {/* Project Section */}
             <Card className="mb-4 border-0">
               <strong className='ms-3'>Project</strong>

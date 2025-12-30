@@ -52,6 +52,9 @@ const ORGANIZATION_STRUCTURE = {
   }
 };
 
+// 🔥 TAMBAHKAN KONSTANTA UNTUK PROJECT DEPARTMENTS
+const PROJECT_DEPARTMENTS = ['PPD', 'DPA', 'UUD', 'PDM'];
+
 function Master() {
   const [projects, setProjects] = useState([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
@@ -74,7 +77,8 @@ function Master() {
     inputType: 'noProject',
     inputValue: '',
     namaProject: '',
-    skalaProject: '' // 🔥 TAMBAHKAN INI
+    skalaProject: '', // Skala project
+    projectDepartments: [] // 🔥 TAMBAHKAN INI
   });
 
   const [userFormData, setUserFormData] = useState({
@@ -205,8 +209,8 @@ function Master() {
   };
 
   const validateProjectForm = () => {
-    if (!projectFormData.inputValue || !projectFormData.namaProject) {
-      showAlert('Semua field harus diisi!', 'warning');
+    if (!projectFormData.inputValue || !projectFormData.namaProject || projectFormData.projectDepartments.length === 0) {
+      showAlert('Semua field harus diisi! (termasuk departemen project)', 'warning');
       return false;
     }
     return true;
@@ -227,11 +231,11 @@ function Master() {
 
     setLoadingProjects(true);
     try {
-      // Di handleProjectSubmit dan handleProjectUpdate, tambahkan skalaProject
       const dataToSave = {
         inputType: projectFormData.inputType,
         namaProject: projectFormData.namaProject,
-        skalaProject: projectFormData.skalaProject || '', // 🔥 TAMBAHKAN INI
+        skalaProject: projectFormData.skalaProject || '',
+        projectDepartments: projectFormData.projectDepartments || [],
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
@@ -280,7 +284,8 @@ function Master() {
       inputType: project.inputType || (project.noProject ? 'noProject' : 'noFppInduk'),
       inputValue: project.noProject || project.noFppInduk,
       namaProject: project.namaProject,
-      skalaProject: project.skalaProject || '' // 🔥 TAMBAHKAN INI
+      skalaProject: project.skalaProject || '',
+      projectDepartments: project.projectDepartments || []
     });
     setCurrentProjectId(project.id);
     setEditProjectMode(true);
@@ -305,6 +310,8 @@ function Master() {
       const dataToUpdate = {
         inputType: projectFormData.inputType,
         namaProject: projectFormData.namaProject,
+        skalaProject: projectFormData.skalaProject || '',
+        projectDepartments: projectFormData.projectDepartments || [], // 🔥 TAMBAHKAN INI
         updatedAt: serverTimestamp()
       };
 
@@ -353,7 +360,8 @@ function Master() {
       inputType: project.inputType || (project.noProject ? 'noProject' : 'noFppInduk'),
       inputValue: project.noProject || project.noFppInduk,
       namaProject: project.namaProject,
-      skalaProject: project.skalaProject || '' // 🔥 TAMBAHKAN INI
+      skalaProject: project.skalaProject || '',
+      projectDepartments: project.projectDepartments || []
     });
     setShowProjectModal(true);
   };
@@ -404,7 +412,8 @@ function Master() {
       inputType: 'noProject',
       inputValue: '',
       namaProject: '',
-      skalaProject: '' // 🔥 TAMBAHKAN INI
+      skalaProject: '',
+      projectDepartments: []
     });
     setEditProjectMode(false);
     setCurrentProjectId(null);
@@ -461,7 +470,7 @@ function Master() {
         <h2 className="d-flex align-items-center">
           <div className="me-2 fw-semibold fs-5" style={{ letterSpacing:'-1.5px' }}>INPUT MASTER</div>
         </h2>
-        </div>
+      </div>
 
       {alert.show && (
         <Alert variant={alert.variant} dismissible onClose={() => setAlert({ show: false })}>
@@ -476,9 +485,9 @@ function Master() {
       >
         <Tab eventKey="projects" title="Projects">
           <Card className="mb-4 border-0">
-              <div className="px-3 mt-3 fw-semibold">
-                {editProjectMode ? 'Edit Project' : 'Tambah Project Baru'}
-              </div>
+            <div className="px-3 mt-3 fw-semibold">
+              {editProjectMode ? 'Edit Project' : 'Tambah Project Baru'}
+            </div>
             <Card.Body>
               <Form onSubmit={editProjectMode ? handleProjectUpdate : handleProjectSubmit}>
                 <Form.Group className="mb-4">
@@ -536,7 +545,6 @@ function Master() {
                   </Col>
                 </Row>
 
-                {/* 🔥 TAMBAHKAN ROW UNTUK SKALA PROJECT */}
                 <Row className="mb-3">
                   <Col md={6}>
                     <Form.Group>
@@ -551,6 +559,54 @@ function Master() {
                         <option value="Medium">Medium</option>
                         <option value="Large">Large</option>
                       </Form.Select>
+                    </Form.Group>
+                  </Col>
+                </Row>
+
+                {/* 🔥 TAMBAHKAN SECTION UNTUK PROJECT DEPARTMENTS */}
+                <Row className="mb-3">
+                  <Col md={12}>
+                    <Form.Group>
+                      <Form.Label>Departemen Project yang Terlibat <span className="text-danger">*</span></Form.Label>
+                      <div className="d-flex flex-wrap gap-4 mt-2">
+                        {PROJECT_DEPARTMENTS.map((dept) => (
+                          <Form.Check
+                            key={dept}
+                            type="checkbox"
+                            id={`project-dept-${dept}`}
+                            label={dept}
+                            checked={projectFormData.projectDepartments.includes(dept)}
+                            onChange={(e) => {
+                              const isChecked = e.target.checked;
+                              setProjectFormData(prev => {
+                                if (isChecked) {
+                                  return {
+                                    ...prev,
+                                    projectDepartments: [...prev.projectDepartments, dept]
+                                  };
+                                } else {
+                                  return {
+                                    ...prev,
+                                    projectDepartments: prev.projectDepartments.filter(d => d !== dept)
+                                  };
+                                }
+                              });
+                            }}
+                          />
+                        ))}
+                      </div>
+                      {projectFormData.projectDepartments.length > 0 && (
+                        <div className="mt-2">
+                          <small className="text-muted">
+                            Terpilih: {projectFormData.projectDepartments.join(', ')}
+                          </small>
+                        </div>
+                      )}
+                      {projectFormData.projectDepartments.length === 0 && (
+                        <Form.Text className="text-danger ">
+                          Pilih minimal satu departemen yang terlibat
+                        </Form.Text>
+                      )}
                     </Form.Group>
                   </Col>
                 </Row>
@@ -604,7 +660,8 @@ function Master() {
                         <th style={{ width: '15%' }}>No Project</th>
                         <th style={{ width: '15%' }}>No FPP Induk</th>
                         <th style={{ width: '20%' }}>Nama Project</th>
-                        <th style={{ width: '10%' }}>Skala</th> {/* 🔥 TAMBAHKAN KOLOM INI */}
+                        <th style={{ width: '10%' }}>Skala</th>
+                        <th style={{ width: '15%' }}>Departemen</th>
                         <th style={{ width: '15%' }}>FPP Entries</th>
                         <th style={{ width: '15%' }} className="text-center">Action</th>
                       </tr>
@@ -639,7 +696,6 @@ function Master() {
                               </div>
                             </td>
                             <td>
-                              {/* 🔥 TAMPILKAN SKALA */}
                               {project.skalaProject ? (
                                 <Badge bg={
                                   project.skalaProject === 'Large' ? 'danger' :
@@ -648,6 +704,28 @@ function Master() {
                                 }>
                                   {project.skalaProject}
                                 </Badge>
+                              ) : (
+                                <span className="text-muted">-</span>
+                              )}
+                            </td>
+                            <td>
+                              {project.projectDepartments?.length > 0 ? (
+                                <div>
+                                  {project.projectDepartments.map((dept, idx) => (
+                                    <Badge 
+                                      key={idx} 
+                                      bg={
+                                        dept === 'PPD' ? 'primary' :
+                                        dept === 'DPA' ? 'success' :
+                                        dept === 'UUD' ? 'warning' :
+                                        'info'
+                                      }
+                                      className="me-1 mb-1"
+                                    >
+                                      {dept}
+                                    </Badge>
+                                  ))}
+                                </div>
                               ) : (
                                 <span className="text-muted">-</span>
                               )}
@@ -696,9 +774,9 @@ function Master() {
 
         <Tab eventKey="users" title="Users">
           <Card className="mb-4 border-0">
-              <div className="mb-0 px-3 mt-3 fw-semibold">
-                {editUserMode ? 'Edit User' : 'Tambah User Baru'}
-              </div>
+            <div className="mb-0 px-3 mt-3 fw-semibold">
+              {editUserMode ? 'Edit User' : 'Tambah User Baru'}
+            </div>
             <Card.Body>
               <Form onSubmit={editUserMode ? handleUserUpdate : handleUserSubmit}>
                 <Row>
@@ -878,7 +956,8 @@ function Master() {
             <strong>Tipe:</strong> {projectFormData.inputType === 'noProject' ? 'No Project' : 'No FPP Induk'}<br />
             <strong>{projectFormData.inputType === 'noProject' ? 'No Project' : 'No FPP Induk'}:</strong> {projectFormData.inputValue}<br />
             <strong>Nama Project:</strong> {projectFormData.namaProject}<br />
-            <strong>Skala Project:</strong> {projectFormData.skalaProject || '-'} {/* 🔥 TAMBAHKAN INI */}
+            <strong>Skala Project:</strong> {projectFormData.skalaProject || '-'}<br />
+            <strong>Departemen:</strong> {projectFormData.projectDepartments?.join(', ') || '-'}
           </div>
           <Alert variant="warning" className="mt-3">
             <small>
@@ -1050,45 +1129,6 @@ function Master() {
                   </tbody>
                 </Table>
               </div>
-              {/* <Card className="mt-4 border-0">
-                <Card.Header className="bg-light">
-                  <strong>Summary</strong>
-                </Card.Header>
-                <Card.Body>
-                  <Row>
-                    <Col md={3} className="text-center">
-                      <div className="fs-4 fw-bold text-primary">
-                        {selectedProject?.fppEntries?.length || 0}
-                      </div>
-                      <div className="small text-muted">Total FPP</div>
-                    </Col>
-                    <Col md={3} className="text-center">
-                      <div className="fs-4 fw-bold text-warning">
-                        {selectedProject?.fppEntries?.filter(f => 
-                          f.status === 'In Progress' || f.status === 'submitted' || f.status === 'draft'
-                        ).length || 0}
-                      </div>
-                      <div className="small text-muted">In Progress</div>
-                    </Col>
-                    <Col md={3} className="text-center">
-                      <div className="fs-4 fw-bold text-success">
-                        {selectedProject?.fppEntries?.filter(f => 
-                          f.status === 'Done' || f.status === 'Selesai' || f.status === 'Achieve'
-                        ).length || 0}
-                      </div>
-                      <div className="small text-muted">Selesai</div>
-                    </Col>
-                    <Col md={3} className="text-center">
-                      <div className="fs-4 fw-bold text-danger">
-                        {selectedProject?.fppEntries?.filter(f => 
-                          f.status === 'Drop'
-                        ).length || 0}
-                      </div>
-                      <div className="small text-muted">Drop</div>
-                    </Col>
-                  </Row>
-                </Card.Body>
-              </Card> */}
             </>
           )}
         </Modal.Body>
