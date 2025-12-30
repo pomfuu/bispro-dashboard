@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Card, Badge, Table, Button, Form, Modal, Alert, Spinner, Row, Col, InputGroup, Pagination } from 'react-bootstrap';
 import { db } from '../firebase';
-import { collection, getDocs, updateDoc, doc, query, where } from 'firebase/firestore';
+import { collection, getDocs, updateDoc, doc, query, where, addDoc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import { FaFileExcel, FaDownload, FaEdit, FaSyncAlt } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
@@ -17,6 +17,101 @@ function Monitoring() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   const [originalData, setOriginalData] = useState(null);
+
+  const [showRevisionDetailModal, setShowRevisionDetailModal] = useState(false);
+  const [revisionDetail, setRevisionDetail] = useState(null);
+
+  const handleViewRevisionDetail = (item) => {
+    setRevisionDetail(item);
+    setShowRevisionDetailModal(true);
+  };
+
+  // Modal untuk detail revisi
+  const renderRevisionDetailModal = () => {
+    if (!revisionDetail) return null;
+    
+    return (
+      <Modal show={showRevisionDetailModal} onHide={() => setShowRevisionDetailModal(false)} size="lg">
+        <Modal.Header closeButton>
+          <Modal.Title>
+            <i className="bi bi-diagram-2 me-2"></i>
+            Detail Revisi FPP
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <Row>
+            <Col md={6}>
+              <Card className="mb-3">
+                <Card.Header className="bg-light">
+                  <strong>FPP Ini</strong>
+                </Card.Header>
+                <Card.Body>
+                  <p><strong>No FPP:</strong> {revisionDetail.noFpp}</p>
+                  <p><strong>Status:</strong> <Badge bg={getStatusBadgeInfo(revisionDetail).color}>
+                    {getStatusBadgeInfo(revisionDetail).text}
+                  </Badge></p>
+                  <p><strong>Tanggal Revisi:</strong> {formatDate(revisionDetail.tanggalRevisi)}</p>
+                  <p><strong>Alasan Revisi:</strong> {revisionDetail.alasanRevisi || revisionDetail.revisiAlasan || '-'}</p>
+                </Card.Body>
+              </Card>
+            </Col>
+            
+            <Col md={6}>
+              <Card className="mb-3">
+                <Card.Header className="bg-light">
+                  <strong>Keterkaitan</strong>
+                </Card.Header>
+                <Card.Body>
+                  {revisionDetail.isRevisiDari && (
+                    <Alert variant="info">
+                      <p><strong>Revisi dari FPP:</strong></p>
+                      <p className="mb-1"><strong>No FPP:</strong> {revisionDetail.isRevisiDari}</p>
+                      <p className="mb-0"><strong>Status:</strong> Revisi FPP</p>
+                    </Alert>
+                  )}
+                  
+                  {revisionDetail.replacedBy && (
+                    <Alert variant="warning">
+                      <p><strong>Digantikan oleh FPP baru:</strong></p>
+                      <p className="mb-1"><strong>No FPP:</strong> {revisionDetail.replacedBy}</p>
+                      <p className="mb-0"><strong>Status:</strong> In Progress</p>
+                    </Alert>
+                  )}
+                  
+                  {!revisionDetail.isRevisiDari && !revisionDetail.replacedBy && (
+                    <p className="text-muted">Tidak ada data keterkaitan revisi</p>
+                  )}
+                </Card.Body>
+              </Card>
+            </Col>
+          </Row>
+          
+          <Card>
+            <Card.Header className="bg-light">
+              <strong>Informasi Tambahan</strong>
+            </Card.Header>
+            <Card.Body>
+              <p><strong>Judul FPP:</strong> {revisionDetail.judulFpp}</p>
+              <p><strong>Department:</strong> {revisionDetail.department}</p>
+              <p><strong>PIC:</strong> {revisionDetail.pic}</p>
+              <p><strong>Tanggal Approval:</strong> {formatDate(revisionDetail.approvalDate)}</p>
+              {revisionDetail.revisionInfo && (
+                <>
+                  <p><strong>Direvisi oleh:</strong> {revisionDetail.revisionInfo.revisedBy}</p>
+                  <p><strong>Pada:</strong> {formatDate(revisionDetail.revisionInfo.revisionDate)}</p>
+                </>
+              )}
+            </Card.Body>
+          </Card>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowRevisionDetailModal(false)}>
+            Tutup
+          </Button>
+        </Modal.Footer>
+      </Modal>
+    );
+  };
 
   const hasChanges = () => {
     if (!originalData || !selectedItem) return false;
@@ -1107,6 +1202,7 @@ function Monitoring() {
     
     setShowRevisiFPPModal(true);
   };
+
   const handleSubmitRevisiFPP = async () => {
     if (!revisiFPPData.noFppBaru.trim()) {
       showAlert('Harap isi nomor FPP baru', 'warning');
@@ -1123,9 +1219,15 @@ function Monitoring() {
       return;
     }
     
+    // Validasi: cek apakah nomor FPP baru sudah ada di sistem
+    if (revisiFPPData.noFppBaru === selectedItem.noFpp) {
+      showAlert('Nomor FPP baru harus berbeda dari nomor FPP lama', 'warning');
+      return;
+    }
+    
     setLoading(true);
     try {
-      // Cek apakah nomor FPP baru sudah digunakan
+      // 1. CEK APAKAH NO FPP BARU SUDAH ADA DI SISTEM
       const fppCheckQuery = query(
         collection(db, 'fpp_monitoring'),
         where('noFpp', '==', revisiFPPData.noFppBaru)
@@ -1133,27 +1235,132 @@ function Monitoring() {
       const fppCheckSnapshot = await getDocs(fppCheckQuery);
       
       if (!fppCheckSnapshot.empty) {
-        const existingDoc = fppCheckSnapshot.docs[0];
-        if (existingDoc.id !== selectedItem.id) {
-          showAlert(`No FPP "${revisiFPPData.noFppBaru}" sudah digunakan oleh FPP lain!`, 'danger');
-          setLoading(false);
-          return;
-        }
+        showAlert(`No FPP "${revisiFPPData.noFppBaru}" sudah digunakan di sistem! Harus unique.`, 'danger');
+        setLoading(false);
+        return;
       }
       
-      const updateData = {
+      // 2. CEK DI fpp_entries JUGA (jika diperlukan)
+      const fppEntriesCheckQuery = query(
+        collection(db, 'fpp_entries'),
+        where('noFpp', '==', revisiFPPData.noFppBaru)
+      );
+      const fppEntriesCheckSnapshot = await getDocs(fppEntriesCheckQuery);
+      
+      if (!fppEntriesCheckSnapshot.empty) {
+        showAlert(`No FPP "${revisiFPPData.noFppBaru}" sudah digunakan di Master Data!`, 'danger');
+        setLoading(false);
+        return;
+      }
+      
+      // 3. BUAT FPP BARU SEBAGAI DUPLIKAT (HAPUS FIELD ID DAN TIMESTAMP YANG TIDAK DIPERLUKAN)
+      console.log('🔁 Membuat FPP baru sebagai revisi...');
+      
+      // Buat copy dari selectedItem tanpa field id dan metadata timestamp yang tidak diperlukan
+      const { 
+        id, // HAPUS field id
+        createdAt, 
+        updatedAt, 
+        ...selectedItemWithoutId 
+      } = selectedItem;
+      
+      // Data FPP baru (duplikat dari FPP lama)
+      const newFppData = {
+        ...selectedItemWithoutId,
+        
+        // Data spesifik revisi
         noFpp: revisiFPPData.noFppBaru,
+        status: 'In Progress', // Reset status ke In Progress
+        isRevisiDari: selectedItem.noFpp, // Simpan referensi ke FPP asli
+        tanggalRevisi: revisiFPPData.tanggalRevisi,
+        alasanRevisi: revisiFPPData.alasanRevisi,
+        keterangan: revisiFPPData.keterangan || '',
+        
+        // Reset tanggal selesai dan monitoring info untuk FPP baru
+        tanggalSelesai: '',
+        doneChecklist: null,
+        dropAlasan: '',
+        holdAlasan: '',
+        revisiAlasan: '', // Kosongkan revisiAlasan di FPP baru
+        
+        // Timestamp baru
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        
+        // Metadata tambahan untuk tracking
+        revisionInfo: {
+          fromFpp: selectedItem.noFpp,
+          revisionDate: revisiFPPData.tanggalRevisi,
+          revisedBy: user?.pic || user?.nama || 'Unknown',
+          reason: revisiFPPData.alasanRevisi
+        }
+      };
+      
+      // 4. SIMPAN FPP BARU KE FIRESTORE
+      const newDocRef = await addDoc(collection(db, 'fpp_monitoring'), newFppData);
+      
+      console.log('✅ FPP baru dibuat dengan ID:', newDocRef.id);
+      
+      // 5. UPDATE STATUS FPP LAMA
+      const oldFppUpdateData = {
         status: 'Revisi FPP',
         revisiAlasan: revisiFPPData.alasanRevisi,
         tanggalRevisi: revisiFPPData.tanggalRevisi,
-        keterangan: revisiFPPData.keterangan,
-        updatedAt: new Date()
+        updatedAt: new Date(),
+        // Tambahkan link ke FPP baru
+        replacedBy: revisiFPPData.noFppBaru,
+        isReplaced: true
       };
       
-      const docRef = doc(db, 'fpp_monitoring', selectedItem.id);
-      await updateDoc(docRef, updateData);
+      const oldDocRef = doc(db, 'fpp_monitoring', selectedItem.id);
+      await updateDoc(oldDocRef, oldFppUpdateData);
       
-      showAlert('Revisi FPP berhasil! Nomor FPP telah diperbarui.', 'success');
+      // 6. OPTIONAL: Juga simpan ke fpp_entries untuk Master Data
+      try {
+        // Buat copy untuk fpp_entries tanpa metadata yang tidak perlu
+        const { 
+          doneChecklist, 
+          dropAlasan, 
+          holdAlasan, 
+          revisiAlasan, 
+          tanggalSelesai, 
+          ...fppEntryBaseData 
+        } = selectedItemWithoutId;
+        
+        const fppEntryData = {
+          // Data dari FPP lama untuk Master Data
+          ...fppEntryBaseData,
+          
+          // FPP Data dengan nomor baru
+          noFpp: revisiFPPData.noFppBaru,
+          
+          // Metadata revisi
+          isRevisiDari: selectedItem.noFpp,
+          tanggalRevisi: revisiFPPData.tanggalRevisi,
+          alasanRevisi: revisiFPPData.alasanRevisi,
+          keterangan: revisiFPPData.keterangan || '',
+          
+          // Status di Master Data
+          status: 'active',
+          
+          // Metadata timestamp baru
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        
+        await addDoc(collection(db, 'fpp_entries'), fppEntryData);
+        console.log('✅ FPP baru juga disimpan ke fpp_entries');
+      } catch (error) {
+        console.warn('⚠️ Tidak bisa menyimpan ke fpp_entries:', error);
+        // Lanjutkan saja, tidak critical
+      }
+      
+      showAlert(
+        `Revisi FPP berhasil! FPP baru "${revisiFPPData.noFppBaru}" telah dibuat sebagai duplikat dari FPP lama.`,
+        'success'
+      );
+      
+      // 7. RESET DAN TUTUP MODAL
       setShowRevisiFPPModal(false);
       setRevisiFPPData({
         noFppBaru: '',
@@ -1162,10 +1369,12 @@ function Monitoring() {
         keterangan: ''
       });
       
+      // 8. REFRESH DATA
       fetchMonitoringData();
+      
     } catch (error) {
-      console.error('Error updating FPP revision:', error);
-      showAlert('Error update: ' + error.message, 'danger');
+      console.error('Error creating FPP revision:', error);
+      showAlert('Error membuat revisi FPP: ' + error.message, 'danger');
     }
     setLoading(false);
   };
@@ -1535,135 +1744,172 @@ function Monitoring() {
     );
   };
 
-  // ========== RENDER FUNCTIONS ==========
 
   // ========== RENDER FUNCTIONS ==========
 
-    const renderTableSection = (title, data, groupName, color, showCount = true) => {
-      const paginatedData = getPaginatedData(data, groupName);
-      const currentPage = currentPages[groupName] || 1;
-      
-      if (data.length === 0) return null;
-      
-      return (
-        <Card className="mb-4">
-          <Card.Header className="d-flex flex-wrap justify-content-between align-items-center gap-2">
-            <div className="mb-0 fw-semibold">
-              {title} {showCount && <Badge bg="light" text="dark" className="ms-2">{data.length}</Badge>}
-            </div>
-            <div className="d-flex align-items-center gap-2 flex-wrap">
-              <Badge bg="light" text="dark" className="fs-6">
-                Halaman {currentPage} dari {Math.ceil(data.length / itemsPerPage)}
-              </Badge>
-              <Badge bg="light" text="dark" className="fs-6">
-                Total: {data.length}
-              </Badge>
-            </div>
-          </Card.Header>
-          <Card.Body className="p-0">
-            <div className="table-responsive" style={{ overflowX: 'auto' }}>
-              <Table hover className="mb-0" style={{ minWidth: '1200px' }}>
-                <thead className="table-light">
-                  <tr>
-                    <th style={{ width: '50px', minWidth: '50px' }}>No</th>
-                    <th style={{ minWidth: '120px' }}>No FPP</th>
-                    <th style={{ minWidth: '200px' }}>Judul FPP</th>
-                    <th style={{ minWidth: '150px' }}>Tanggal Target</th>
-                    <th style={{ minWidth: '150px' }}>Monitoring</th>
-                    <th style={{ minWidth: '100px' }}>Status</th>
-                    <th style={{ minWidth: '120px' }}>PIC</th>
-                    <th style={{ minWidth: '100px' }}>Department</th>
-                    <th style={{ width: '200px', minWidth: '200px' }}>Aksi</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paginatedData.map((item, index) => {
-                    const targetDate = findLastTargetDate(item.rencanaPenugasan);
-                    const statusBadge = getStatusBadgeInfo(item);
-                    const globalIndex = (currentPage - 1) * itemsPerPage + index + 1;
-                    const canEdit = canUserEditItem(item);
-                    
-                    return (
-                      <tr key={item.id} className="align-middle">
-                        <td className="text-center">{globalIndex}</td>
-                        <td>
-                          <div className="text-truncate" style={{ maxWidth: '120px' }} title={item.noFpp || '-'}>
-                            <span className="fw-bold">{item.noFpp || '-'}</span>
+  const renderTableSection = (title, data, groupName, color, showCount = true) => {
+    const paginatedData = getPaginatedData(data, groupName);
+    const currentPage = currentPages[groupName] || 1;
+    
+    if (data.length === 0) return null;
+    
+    return (
+      <Card className="mb-4">
+        <Card.Header className="d-flex flex-wrap justify-content-between align-items-center gap-2">
+          <div className="mb-0 fw-semibold">
+            {title} {showCount && <Badge bg="light" text="dark" className="ms-2">{data.length}</Badge>}
+          </div>
+          <div className="d-flex align-items-center gap-2 flex-wrap">
+            <Badge bg="light" text="dark" className="fs-6">
+              Halaman {currentPage} dari {Math.ceil(data.length / itemsPerPage)}
+            </Badge>
+            <Badge bg="light" text="dark" className="fs-6">
+              Total: {data.length}
+            </Badge>
+          </div>
+        </Card.Header>
+        <Card.Body className="p-0">
+          <div className="table-responsive" style={{ overflowX: 'auto' }}>
+            <Table hover className="mb-0" style={{ minWidth: '1400px' }}>
+              <thead className="table-light">
+                <tr>
+                  <th style={{ width: '50px', minWidth: '50px' }}>No</th>
+                  <th style={{ minWidth: '120px' }}>No FPP</th>
+                  <th style={{ minWidth: '200px' }}>Judul FPP</th>
+                  <th style={{ minWidth: '150px' }}>Tanggal Target</th>
+                  <th style={{ minWidth: '150px' }}>Monitoring</th>
+                  <th style={{ minWidth: '100px' }}>Status</th>
+                  <th style={{ minWidth: '120px' }}>PIC</th>
+                  <th style={{ minWidth: '100px' }}>Department</th>
+                  <th style={{ minWidth: '100px' }}>Revisi Info</th>
+                  <th style={{ width: '200px', minWidth: '200px' }}>Aksi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedData.map((item, index) => {
+                  const targetDate = findLastTargetDate(item.rencanaPenugasan);
+                  const statusBadge = getStatusBadgeInfo(item);
+                  const globalIndex = (currentPage - 1) * itemsPerPage + index + 1;
+                  const canEdit = canUserEditItem(item);
+                  
+                  return (
+                    <tr key={item.id} className="align-middle">
+                      <td className="text-center">{globalIndex}</td>
+                      <td onClick={() => handleViewRevisionDetail(item)} style={{ cursor: 'pointer' }}>
+                        <div className="text-truncate" style={{ maxWidth: '120px' }} title={item.noFpp || '-'}>
+                          <span className="fw-bold">{item.noFpp || '-'}</span>
+                          {item.isRevisiDari && (
+                            <Badge bg="info" className="ms-1" title={`Revisi dari: ${item.isRevisiDari}`}>
+                              R
+                            </Badge>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <div>
+                          <div className="text-truncate" style={{ maxWidth: '200px' }} title={item.judulFpp || '-'}>
+                            <strong>{item.judulFpp || '-'}</strong>
                           </div>
-                        </td>
-                        <td>
-                          <div>
-                            <div className="text-truncate" style={{ maxWidth: '200px' }} title={item.judulFpp || '-'}>
-                              <strong>{item.judulFpp || '-'}</strong>
-                            </div>
-                            <small className="text-muted text-truncate d-block" style={{ maxWidth: '200px' }}>
-                              {item.department || '-'}
+                          <small className="text-muted text-truncate d-block" style={{ maxWidth: '200px' }}>
+                            {item.department || '-'}
+                          </small>
+                        </div>
+                      </td>
+                      <td>
+                        {targetDate ? (
+                          <div style={{ whiteSpace: 'nowrap' }}>
+                            <div className="fw-bold">{formatDate(targetDate)}</div>
+                            <small className="text-muted d-block">
+                              Approval: {formatDate(item.approvalDate)}
                             </small>
                           </div>
-                        </td>
-                        <td>
-                          {targetDate ? (
-                            <div style={{ whiteSpace: 'nowrap' }}>
-                              <div className="fw-bold">{formatDate(targetDate)}</div>
-                              <small className="text-muted d-block">
-                                Approval: {formatDate(item.approvalDate)}
-                              </small>
+                        ) : (
+                          <span className="text-muted">-</span>
+                        )}
+                      </td>
+                      <td className='fs-7 fw-semibold' style={{ whiteSpace: 'nowrap' }}>
+                        {renderMonitoringText(item)}
+                      </td>
+                      <td>
+                        <Badge bg={statusBadge.color} style={{ whiteSpace: 'nowrap' }}>
+                          {statusBadge.text}
+                        </Badge>
+                        {item.replacedBy && (
+                          <div className="small text-muted mt-1">
+                            <i className="bi bi-arrow-right"></i> {item.replacedBy}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        <div className="text-truncate" style={{ maxWidth: '120px' }} title={item.pic || '-'}>
+                          <span className="fw-bold">{item.pic || '-'}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <Badge bg="info" style={{ whiteSpace: 'nowrap' }}>{item.department || '-'}</Badge>
+                      </td>
+                      <td>
+                        {/* Kolom Revisi Info */}
+                        {item.isRevisiDari ? (
+                          <div className="small">
+                            <Badge bg="light" text="dark" className="mb-1">
+                              <i className="bi bi-arrow-left"></i> Revisi dari
+                            </Badge>
+                            <div className="text-truncate" title={item.isRevisiDari}>
+                              {item.isRevisiDari}
                             </div>
-                          ) : (
-                            <span className="text-muted">-</span>
-                          )}
-                        </td>
-                        <td className='fs-7 fw-semibold' style={{ whiteSpace: 'nowrap' }}>
-                          {renderMonitoringText(item)}
-                        </td>
-                        <td>
-                          <Badge bg={statusBadge.color} style={{ whiteSpace: 'nowrap' }}>
-                            {statusBadge.text}
-                          </Badge>
-                        </td>
-                        <td>
-                          <div className="text-truncate" style={{ maxWidth: '120px' }} title={item.pic || '-'}>
-                            <span className="fw-bold">{item.pic || '-'}</span>
                           </div>
-                        </td>
-                        <td>
-                          <Badge bg="info" style={{ whiteSpace: 'nowrap' }}>{item.department || '-'}</Badge>
-                        </td>
-                        <td>
-                          <div className="d-flex gap-1 flex-nowrap">
-                            <Button
-                              size="sm"
-                              variant="primary"
-                              onClick={() => handleOpenEditModal(item)}
-                              title="Edit Monitoring"
-                              disabled={!canEdit}
-                              style={{ opacity: canEdit ? 1 : 0.5, whiteSpace: 'nowrap' }}
-                            >
-                              <FaEdit /> Edit
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="info"
-                              onClick={() => handleOpenRevisiFPPModal(item)}
-                              title="Revisi FPP (Ganti Nomor)"
-                              disabled={!canEdit}
-                              style={{ opacity: canEdit ? 1 : 0.5, whiteSpace: 'nowrap' }}
-                            >
-                              <FaSyncAlt /> Revisi
-                            </Button>
+                        ) : item.replacedBy ? (
+                          <div className="small">
+                            <Badge bg="light" text="dark" className="mb-1">
+                              <i className="bi bi-arrow-right"></i> Digantikan oleh
+                            </Badge>
+                            <div className="text-truncate" title={item.replacedBy}>
+                              {item.replacedBy}
+                            </div>
                           </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </Table>
-            </div>
-            {renderPaginationForGroup(data, groupName)}
-          </Card.Body>
-        </Card>
-      );
-    };
+                        ) : (
+                          <span className="text-muted">-</span>
+                        )}
+                      </td>
+                      <td>
+                        <div className="d-flex gap-1 flex-nowrap">
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            onClick={() => handleOpenEditModal(item)}
+                            title="Edit Monitoring"
+                            disabled={!canEdit}
+                            style={{ opacity: canEdit ? 1 : 0.5, whiteSpace: 'nowrap' }}
+                          >
+                            <FaEdit /> Edit
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="info"
+                            onClick={() => handleOpenRevisiFPPModal(item)}
+                            title="Buat Revisi FPP Baru"
+                            disabled={!canEdit || item.status === 'Revisi FPP'}
+                            style={{ 
+                              opacity: (canEdit && item.status !== 'Revisi FPP') ? 1 : 0.5, 
+                              whiteSpace: 'nowrap' 
+                            }}
+                          >
+                            <FaSyncAlt /> Revisi
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </Table>
+          </div>
+          {renderPaginationForGroup(data, groupName)}
+        </Card.Body>
+      </Card>
+    );
+  };
 
   // ========== MODAL RENDER FUNCTIONS ==========
 
@@ -1776,7 +2022,7 @@ function Monitoring() {
           <Form.Control
             as="textarea"
             rows={3}
-            placeholder="Jelaskan alasan mengapa project di-drop..."
+            // placeholder="Jelaskan alasan mengapa project di-drop..."
             value={dropAlasan}
             onChange={(e) => setDropAlasan(e.target.value)}
           />
@@ -1830,13 +2076,10 @@ function Monitoring() {
           <Form.Control
             as="textarea"
             rows={3}
-            placeholder="Jelaskan alasan mengapa project di-hold..."
+            // placeholder="Jelaskan alasan mengapa project di-hold..."
             value={holdAlasan}
             onChange={(e) => setHoldAlasan(e.target.value)}
           />
-          <Form.Text className="text-muted">
-            Berikan penjelasan detail mengapa project ini harus di-hold.
-          </Form.Text>
         </Form.Group>
       </Modal.Body>
       <Modal.Footer>
@@ -1884,13 +2127,13 @@ function Monitoring() {
           <Form.Control
             as="textarea"
             rows={3}
-            placeholder="Jelaskan alasan revisi FPP..."
+            // placeholder="Jelaskan alasan revisi FPP..."
             value={revisiAlasan}
             onChange={(e) => setRevisiAlasan(e.target.value)}
           />
-          <Form.Text className="text-muted">
+          {/* <Form.Text className="text-muted">
             Berikan penjelasan detail mengapa FPP ini perlu direvisi.
-          </Form.Text>
+          </Form.Text> */}
         </Form.Group>
       </Modal.Body>
       <Modal.Footer>
@@ -1928,71 +2171,153 @@ function Monitoring() {
     return (
       <Modal show={showRevisiFPPModal} onHide={() => setShowRevisiFPPModal(false)} size="lg">
         <Modal.Header closeButton>
-          <Modal.Title>Revisi FPP - Ganti Nomor</Modal.Title>
+          <Modal.Title>Revisi FPP - Buat Duplikat dengan Nomor Baru</Modal.Title>
         </Modal.Header>
         <Modal.Body>
-          <Alert variant="warning">
-            <strong>Perhatian:</strong> Anda akan mengganti nomor FPP untuk project ini.
-            <br />
-            <small>Pastikan nomor FPP baru belum digunakan oleh project lain.</small>
+          <Alert variant="info" className="d-flex align-items-center">
+            <div className="me-3">
+              <i className="bi bi-files" style={{ fontSize: '2rem' }}></i>
+            </div>
+            <div>
+              <strong>Proses Revisi FPP:</strong>
+              <ul className="mb-0">
+                <li>FPP lama tetap ada dengan status <Badge bg="info">Revisi FPP</Badge></li>
+                <li>FPP baru akan dibuat sebagai duplikat dengan nomor baru</li>
+                <li>FPP baru akan berstatus <Badge bg="primary">In Progress</Badge></li>
+              </ul>
+            </div>
           </Alert>
           
-          <Form.Group className="mb-3">
-            <Form.Label>Nomor FPP Lama</Form.Label>
-            <Form.Control
-              type="text"
-              value={selectedItem.noFpp || '-'}
-              readOnly
-              style={{ backgroundColor: '#e9ecef' }}
-            />
-          </Form.Group>
+          <Card className="mb-3">
+            <Card.Header className="bg-light">
+              <strong>FPP Lama (Akan di-archive)</strong>
+            </Card.Header>
+            <Card.Body>
+              <Row>
+                <Col md={6}>
+                  <Form.Group className="mb-2">
+                    <Form.Label className="small text-muted">No FPP Lama</Form.Label>
+                    <div className="fw-semibold">{selectedItem.noFpp || '-'}</div>
+                  </Form.Group>
+                </Col>
+                <Col md={6}>
+                  <Form.Group className="mb-2">
+                    <Form.Label className="small text-muted">Judul FPP</Form.Label>
+                    <div className="fw-semibold">{selectedItem.judulFpp || '-'}</div>
+                  </Form.Group>
+                </Col>
+              </Row>
+              <Row>
+                <Col md={6}>
+                  <Form.Group className="mb-2">
+                    <Form.Label className="small text-muted">Status Saat Ini</Form.Label>
+                    <div>
+                      <Badge bg={getStatusBadgeInfo(selectedItem).color}>
+                        {getStatusBadgeInfo(selectedItem).text}
+                      </Badge>
+                    </div>
+                  </Form.Group>
+                </Col>
+                <Col md={6}>
+                  <Form.Group className="mb-2">
+                    <Form.Label className="small text-muted">Tanggal Approval</Form.Label>
+                    <div className="fw-semibold">{formatDate(selectedItem.approvalDate)}</div>
+                  </Form.Group>
+                </Col>
+              </Row>
+            </Card.Body>
+          </Card>
           
-          <Form.Group className="mb-3">
-            <Form.Label>Nomor FPP Baru <span className="text-danger">*</span></Form.Label>
-            <Form.Control
-              type="text"
-              placeholder="Masukkan nomor FPP baru..."
-              value={revisiFPPData.noFppBaru}
-              onChange={(e) => setRevisiFPPData(prev => ({ ...prev, noFppBaru: e.target.value }))}
-              required
-            />
-          </Form.Group>
+          <Card className="border-primary">
+            <Card.Header className="bg-primary text-white">
+              <strong>FPP Baru (Duplikat)</strong>
+            </Card.Header>
+            <Card.Body>
+              <Form.Group className="mb-3">
+                <Form.Label>
+                  Nomor FPP Baru <span className="text-danger">*</span>
+                  <Badge bg="warning" className="ms-2">Harus Unique</Badge>
+                </Form.Label>
+                <Form.Control
+                  type="text"
+                  placeholder="Masukkan nomor FPP baru..."
+                  value={revisiFPPData.noFppBaru}
+                  onChange={(e) => setRevisiFPPData(prev => ({ ...prev, noFppBaru: e.target.value }))}
+                  required
+                  className={revisiFPPData.noFppBaru === selectedItem.noFpp ? 'border-danger' : ''}
+                />
+                {revisiFPPData.noFppBaru === selectedItem.noFpp && (
+                  <Form.Text className="text-danger">
+                    ⚠️ Nomor FPP baru harus berbeda dari nomor FPP lama
+                  </Form.Text>
+                )}
+              </Form.Group>
+              
+              <Row>
+                <Col md={6}>
+                  <Form.Group className="mb-3">
+                    <Form.Label>Tanggal Revisi <span className="text-danger">*</span></Form.Label>
+                    <Form.Control
+                      type="date"
+                      value={revisiFPPData.tanggalRevisi}
+                      onChange={(e) => setRevisiFPPData(prev => ({ ...prev, tanggalRevisi: e.target.value }))}
+                      required
+                    />
+                  </Form.Group>
+                </Col>
+                <Col md={6}>
+                  <Form.Group className="mb-3">
+                    <Form.Label>Status FPP Baru</Form.Label>
+                    <div className="p-2 bg-light rounded border">
+                      <Badge bg="primary">In Progress</Badge>
+                      <small className="text-muted ms-2">(akan direset)</small>
+                    </div>
+                  </Form.Group>
+                </Col>
+              </Row>
+              
+              <Form.Group className="mb-3">
+                <Form.Label>Alasan Revisi <span className="text-danger">*</span></Form.Label>
+                <Form.Control
+                  as="textarea"
+                  rows={3}
+                  // placeholder="Jelaskan alasan mengapa FPP perlu direvisi/diduplikat..."
+                  value={revisiFPPData.alasanRevisi}
+                  onChange={(e) => setRevisiFPPData(prev => ({ ...prev, alasanRevisi: e.target.value }))}
+                  required
+                />
+              </Form.Group>
+              
+              <Form.Group className="mb-3">
+                <Form.Label>Catatan/Keterangan Tambahan</Form.Label>
+                <Form.Control
+                  as="textarea"
+                  rows={2}
+                  // placeholder="Catatan tambahan untuk FPP baru..."
+                  value={revisiFPPData.keterangan}
+                  onChange={(e) => setRevisiFPPData(prev => ({ ...prev, keterangan: e.target.value }))}
+                />
+                {/* <Form.Text className="text-muted">
+                  Catatan ini hanya akan disimpan di FPP baru
+                </Form.Text> */}
+              </Form.Group>
+            </Card.Body>
+          </Card>
           
-          <Form.Group className="mb-3">
-            <Form.Label>Tanggal Revisi <span className="text-danger">*</span></Form.Label>
-            <Form.Control
-              type="date"
-              value={revisiFPPData.tanggalRevisi}
-              onChange={(e) => setRevisiFPPData(prev => ({ ...prev, tanggalRevisi: e.target.value }))}
-              required
-            />
-          </Form.Group>
-          
-          <Form.Group className="mb-3">
-            <Form.Label>Alasan Revisi FPP <span className="text-danger">*</span></Form.Label>
-            <Form.Control
-              as="textarea"
-              rows={3}
-              value={revisiFPPData.alasanRevisi}
-              onChange={(e) => setRevisiFPPData(prev => ({ ...prev, alasanRevisi: e.target.value }))}
-              required
-            />
-          </Form.Group>
-          
-          <Form.Group className="mb-3">
-            <Form.Label>Keterangan Tambahan</Form.Label>
-            <Form.Control
-              as="textarea"
-              rows={2}
-              value={revisiFPPData.keterangan}
-              onChange={(e) => setRevisiFPPData(prev => ({ ...prev, keterangan: e.target.value }))}
-            />
-          </Form.Group>
-          
-          <Alert variant="info" className="mt-3">
-            <i className="bi bi-info-circle me-2"></i>
-            Setelah direvisi, project akan berstatus <Badge bg="info">Revisi FPP</Badge>
-            dan nomor FPP akan diperbarui di semua sistem.
+          <Alert variant="warning" className="mt-3">
+            <div className="d-flex">
+              <div className="me-3">
+                <i className="bi bi-info-circle"></i>
+              </div>
+              <div>
+                <strong>Perhatian:</strong>
+                <ul className="mb-0 small">
+                  <li>Semua data FPP lama akan diduplikasi ke FPP baru</li>
+                  <li>FPP baru akan memiliki timeline monitoring dari awal</li>
+                  <li>Pastikan nomor FPP baru belum digunakan di sistem</li>
+                </ul>
+              </div>
+            </div>
           </Alert>
         </Modal.Body>
         <Modal.Footer>
@@ -2012,17 +2337,26 @@ function Monitoring() {
             Batal
           </Button>
           <Button 
-            variant="warning" 
+            variant="primary" 
             onClick={handleSubmitRevisiFPP}
-            disabled={loading || !revisiFPPData.noFppBaru.trim() || !revisiFPPData.tanggalRevisi || !revisiFPPData.alasanRevisi.trim()}
+            disabled={
+              loading || 
+              !revisiFPPData.noFppBaru.trim() || 
+              !revisiFPPData.tanggalRevisi || 
+              !revisiFPPData.alasanRevisi.trim() ||
+              revisiFPPData.noFppBaru === selectedItem.noFpp
+            }
           >
             {loading ? (
               <>
                 <Spinner size="sm" animation="border" className="me-2" />
-                Proses...
+                Membuat Duplikat...
               </>
             ) : (
-              'Simpan Revisi FPP'
+              <>
+                <i className="bi bi-files me-2"></i>
+                Buat FPP Baru
+              </>
             )}
           </Button>
         </Modal.Footer>
@@ -2812,6 +3146,7 @@ function Monitoring() {
       {renderHoldModal()}
       {renderRevisiModal()}
       {renderRevisiFPPModal()}
+      {renderRevisionDetailModal()}
     </Container>
   );
 }

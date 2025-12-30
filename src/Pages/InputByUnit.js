@@ -489,9 +489,12 @@ function RegisterFPP() {
       setFormData(prev => ({
         ...prev,
         masterProjectNumber: value,
-        masterProjectName: selectedProject ? selectedProject.namaProject : ''
+        masterProjectName: selectedProject ? selectedProject.namaProject : '',
+        // 🔥 Ambil skala dari project yang dipilih
+        skalaProject: selectedProject ? selectedProject.skalaProject || '' : ''
       }));
-    } else if (name === 'jenisProject') {
+    }
+    else if (name === 'jenisProject') {
       setFormData(prev => ({
         ...prev,
         jenisProject: value,
@@ -1494,24 +1497,27 @@ function RegisterFPP() {
                           if (selected && selected.length > 0) {
                             const selectedValue = selected[0];
                             
-                            if (typeof selectedValue === 'string') {
-                              setFormData(prev => ({
-                                ...prev,
-                                masterProjectNumber: selectedValue,
-                                masterProjectName: ''
-                              }));
-                            } else {
-                              const selectedProject = projects.find(p => 
-                                (formData.masterProjectType === 'noProject' && p.noProject === selectedValue.label) ||
-                                (formData.masterProjectType === 'noInduk' && p.noFppInduk === selectedValue.label)
-                              );
-                              
-                              setFormData(prev => ({
-                                ...prev,
-                                masterProjectNumber: selectedValue.label,
-                                masterProjectName: selectedProject ? selectedProject.namaProject : ''
-                              }));
-                            }
+                          if (typeof selectedValue === 'string') {
+                            setFormData(prev => ({
+                              ...prev,
+                              masterProjectNumber: selectedValue,
+                              masterProjectName: '',
+                              skalaProject: ''
+                            }));
+                          } else {
+                            const selectedProject = projects.find(p => 
+                              (formData.masterProjectType === 'noProject' && p.noProject === selectedValue.label) ||
+                              (formData.masterProjectType === 'noInduk' && p.noFppInduk === selectedValue.label)
+                            );
+                            
+                            setFormData(prev => ({
+                              ...prev,
+                              masterProjectNumber: selectedValue.label,
+                              masterProjectName: selectedProject ? selectedProject.namaProject : '',
+                              // 🔥 Ambil skala dari project yang dipilih
+                              skalaProject: selectedProject ? selectedProject.skalaProject || '' : ''
+                            }));
+                          }
                           } else {
                             setFormData(prev => ({
                               ...prev,
@@ -1566,23 +1572,6 @@ function RegisterFPP() {
                       {formErrors.masterProjectName && (
                         <Form.Text className="text-danger">{formErrors.masterProjectName}</Form.Text>
                       )}
-                    </Form.Group>
-                  </Col>
-                </Row>
-                <Row className="mt-3">
-                  <Col md={6}>
-                    <Form.Group>
-                      <Form.Label>Skala Project</Form.Label>
-                      <Form.Select
-                        name="skalaProject"
-                        value={formData.skalaProject}
-                        onChange={handleChange}
-                      >
-                        <option value="">Pilih Skala</option>
-                        <option value="Small">Small</option>
-                        <option value="Medium">Medium</option>
-                        <option value="Large">Large</option>
-                      </Form.Select>
                     </Form.Group>
                   </Col>
                 </Row>

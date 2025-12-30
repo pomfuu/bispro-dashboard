@@ -73,7 +73,8 @@ function Master() {
   const [projectFormData, setProjectFormData] = useState({
     inputType: 'noProject',
     inputValue: '',
-    namaProject: ''
+    namaProject: '',
+    skalaProject: '' // 🔥 TAMBAHKAN INI
   });
 
   const [userFormData, setUserFormData] = useState({
@@ -226,9 +227,11 @@ function Master() {
 
     setLoadingProjects(true);
     try {
+      // Di handleProjectSubmit dan handleProjectUpdate, tambahkan skalaProject
       const dataToSave = {
         inputType: projectFormData.inputType,
         namaProject: projectFormData.namaProject,
+        skalaProject: projectFormData.skalaProject || '', // 🔥 TAMBAHKAN INI
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
@@ -276,7 +279,8 @@ function Master() {
     setProjectFormData({
       inputType: project.inputType || (project.noProject ? 'noProject' : 'noFppInduk'),
       inputValue: project.noProject || project.noFppInduk,
-      namaProject: project.namaProject
+      namaProject: project.namaProject,
+      skalaProject: project.skalaProject || '' // 🔥 TAMBAHKAN INI
     });
     setCurrentProjectId(project.id);
     setEditProjectMode(true);
@@ -348,7 +352,8 @@ function Master() {
     setProjectFormData({
       inputType: project.inputType || (project.noProject ? 'noProject' : 'noFppInduk'),
       inputValue: project.noProject || project.noFppInduk,
-      namaProject: project.namaProject
+      namaProject: project.namaProject,
+      skalaProject: project.skalaProject || '' // 🔥 TAMBAHKAN INI
     });
     setShowProjectModal(true);
   };
@@ -398,7 +403,8 @@ function Master() {
     setProjectFormData({
       inputType: 'noProject',
       inputValue: '',
-      namaProject: ''
+      namaProject: '',
+      skalaProject: '' // 🔥 TAMBAHKAN INI
     });
     setEditProjectMode(false);
     setCurrentProjectId(null);
@@ -530,6 +536,25 @@ function Master() {
                   </Col>
                 </Row>
 
+                {/* 🔥 TAMBAHKAN ROW UNTUK SKALA PROJECT */}
+                <Row className="mb-3">
+                  <Col md={6}>
+                    <Form.Group>
+                      <Form.Label>Skala Project</Form.Label>
+                      <Form.Select
+                        name="skalaProject"
+                        value={projectFormData.skalaProject}
+                        onChange={handleProjectChange}
+                      >
+                        <option value="">Pilih Skala</option>
+                        <option value="Small">Small</option>
+                        <option value="Medium">Medium</option>
+                        <option value="Large">Large</option>
+                      </Form.Select>
+                    </Form.Group>
+                  </Col>
+                </Row>
+
                 <div className="d-flex gap-2">
                   <Button 
                     variant={editProjectMode ? "warning" : "primary"} 
@@ -578,7 +603,8 @@ function Master() {
                         <th style={{ width: '10%' }}>Tipe</th>
                         <th style={{ width: '15%' }}>No Project</th>
                         <th style={{ width: '15%' }}>No FPP Induk</th>
-                        <th style={{ width: '25%' }}>Nama Project</th>
+                        <th style={{ width: '20%' }}>Nama Project</th>
+                        <th style={{ width: '10%' }}>Skala</th> {/* 🔥 TAMBAHKAN KOLOM INI */}
                         <th style={{ width: '15%' }}>FPP Entries</th>
                         <th style={{ width: '15%' }} className="text-center">Action</th>
                       </tr>
@@ -594,9 +620,9 @@ function Master() {
                           <tr key={project.id}>
                             <td>{index + 1}</td>
                             <td>
-                              <div bg={project.noProject ? 'primary' : 'info'}>
+                              <Badge bg={project.noProject ? 'primary' : 'info'}>
                                 {project.noProject ? 'Project' : 'FPP Induk'}
-                              </div>
+                              </Badge>
                             </td>
                             <td>{project.noProject || '-'}</td>
                             <td>{project.noFppInduk || '-'}</td>
@@ -611,6 +637,20 @@ function Master() {
                                   </div>
                                 )}
                               </div>
+                            </td>
+                            <td>
+                              {/* 🔥 TAMPILKAN SKALA */}
+                              {project.skalaProject ? (
+                                <Badge bg={
+                                  project.skalaProject === 'Large' ? 'danger' :
+                                  project.skalaProject === 'Medium' ? 'warning' :
+                                  'success'
+                                }>
+                                  {project.skalaProject}
+                                </Badge>
+                              ) : (
+                                <span className="text-muted">-</span>
+                              )}
                             </td>
                             <td>
                               {relatedFppCount > 0 ? (
@@ -630,7 +670,7 @@ function Master() {
                               <Button
                                 variant="warning"
                                 size="sm"
-                                className="me-2"
+                                className="me-1 mb-2"
                                 onClick={() => handleEditProject(project)}
                               >
                                 Edit
@@ -837,7 +877,8 @@ function Master() {
           <div className="bg-light p-3 rounded">
             <strong>Tipe:</strong> {projectFormData.inputType === 'noProject' ? 'No Project' : 'No FPP Induk'}<br />
             <strong>{projectFormData.inputType === 'noProject' ? 'No Project' : 'No FPP Induk'}:</strong> {projectFormData.inputValue}<br />
-            <strong>Nama Project:</strong> {projectFormData.namaProject}
+            <strong>Nama Project:</strong> {projectFormData.namaProject}<br />
+            <strong>Skala Project:</strong> {projectFormData.skalaProject || '-'} {/* 🔥 TAMBAHKAN INI */}
           </div>
           <Alert variant="warning" className="mt-3">
             <small>
@@ -918,19 +959,31 @@ function Master() {
                 </Card.Header>
                 <Card.Body>
                   <Row>
-                    <Col md={4}>
+                    <Col md={3}>
                       <p><strong>Tipe:</strong><br />
                       <Badge bg={selectedProject.noProject ? 'primary' : 'info'}>
                         {selectedProject.noProject ? 'No Project' : 'No FPP Induk'}
                       </Badge></p>
                     </Col>
-                    <Col md={4}>
+                    <Col md={3}>
                       <p><strong>Nomor:</strong><br />
                       <Badge bg="secondary">
                         {selectedProject.noProject || selectedProject.noFppInduk}
                       </Badge></p>
                     </Col>
-                    <Col md={4}>
+                    <Col md={3}>
+                      <p><strong>Skala:</strong><br />
+                      {selectedProject.skalaProject ? (
+                        <Badge bg={
+                          selectedProject.skalaProject === 'Large' ? 'danger' :
+                          selectedProject.skalaProject === 'Medium' ? 'warning' :
+                          'success'
+                        }>
+                          {selectedProject.skalaProject}
+                        </Badge>
+                      ) : '-'}</p>
+                    </Col>
+                    <Col md={3}>
                       <p><strong>Nama:</strong><br />
                       {selectedProject.namaProject}</p>
                     </Col>
