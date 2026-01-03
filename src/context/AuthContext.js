@@ -92,8 +92,10 @@ export const AuthProvider = ({ children }) => {
   const loginAsHead = (password) => {
     console.log('Login as HEAD attempt with password:', password);
     
-    // Password check
-    if (password === 'inputmaster') {
+    // Password check - sekarang bisa kosong atau 'inputmaster'
+    const isValidPassword = !password || password === '' || password === 'inputmaster';
+    
+    if (isValidPassword) {
       const userData = {
         isLoggedIn: true,
         userType: 'HEAD',

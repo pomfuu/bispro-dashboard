@@ -90,11 +90,12 @@ function LoginPage() {
       });
     }
   };
-
+  
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setSuccess('');
+    
     if (loginType === 'TIM') {
       if (!formData.unit || !formData.unitDetail || !formData.pic) {
         setError('Semua field harus diisi!');
@@ -111,12 +112,14 @@ function LoginPage() {
         setError(result.message);
       }
     } else {
-      if (!formData.password) {
-        setError('Password harus diisi!');
-        return;
-      }
+      // 🔥 PERUBAHAN: Password HEAD bisa kosong
+      // Tidak perlu validasi required untuk password
       setLoading(true);
-      const result = loginAsHead(formData.password, 'ALL');
+      
+      // 🔥 PERUBAHAN: Kirim password (bisa kosong)
+      const password = formData.password || '';
+      const result = loginAsHead(password);
+      
       setLoading(false);
       if (result.success) {
         setSuccess('Login sebagai HEAD berhasil!');

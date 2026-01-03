@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Typeahead } from 'react-bootstrap-typeahead';
 import 'react-bootstrap-typeahead/css/Typeahead.css';
+import { useAuth } from '../context/AuthContext';
 import { 
   Container, 
   Card, 
@@ -71,13 +72,63 @@ function RegisterFPP() {
   const [projects, setProjects] = useState([]);
   const [drafts, setDrafts] = useState([]);
   const [editingOutputIndex, setEditingOutputIndex] = useState(null);
+  const {user, getUserFullTim} = useAuth();
+
   
   // Data user dari login (simulasi - dalam aplikasi real akan dari auth)
   const [currentUser, setCurrentUser] = useState({
-    department: 'PPD',
-    tim: 'AKUISISI',
-    pic: 'Isa'
+    department: '',
+    tim: '',
+    pic: '',
+    picName: ''
   });
+
+  const getUserFromAuth = () => {
+    if (!user || !user.isLoggedIn) {
+      return {
+        department: '',
+        tim: '',
+        pic: '',
+        picName: ''
+      };
+    }
+    
+    // Jika user adalah HEAD
+    if (user.role === 'head' || user.isHead) {
+      return {
+        department: 'PPD', // Default untuk HEAD
+        tim: 'AKUISISI',   // Default untuk HEAD
+        pic: '', // 🔥 DIUBAH: Kosongkan
+        picName: ''
+      };
+    }
+    
+    // Jika user adalah TIM
+    return {
+      department: user.department || '',
+      tim: user.tim || '',
+      pic: '', // 🔥 DIUBAH: Kosongkan
+      picName: user.picName || ''
+    };
+  };
+
+    useEffect(() => {
+    if (user) {
+      const userInfo = getUserFromAuth();
+      console.log('Setting currentUser from auth:', userInfo);
+      setCurrentUser(userInfo);
+      
+      // Auto-set form data berdasarkan user login
+      setFormData(prev => ({
+        ...prev,
+        department: userInfo.department,
+        tim: userInfo.tim,
+        pic: userInfo.picName || userInfo.pic // Gunakan picName jika ada
+      }));
+    }
+  }, [user]);
+
+  
 
   const ORGANIZATION_STRUCTURE = {
     'PPD': {
@@ -176,24 +227,8 @@ function RegisterFPP() {
     if (!formData.masterProjectName) {
       errors.masterProjectName = 'Judul Project wajib diisi';
     }
-
-    // 🔥 HAPUS validasi projectDepartments di RegisterFPP
-    // Karena akan diambil otomatis dari Master Project
-    // if (formData.projectDepartments.length === 0) {
-    //   errors.projectDepartments = 'Pilih minimal satu departemen yang terlibat';
-    // }
     
-    // Department validation
-    if (!formData.department) {
-      errors.department = 'Departemen wajib diisi';
-    }
-    if (!formData.tim) {
-      errors.tim = 'Tim wajib diisi';
-    }
-    if (!formData.pic) {
-      errors.pic = 'PIC wajib diisi';
-    }
-    
+    // 🔥 PERUBAHAN: Hapus validasi mandatory untuk PIC
     // FPP validation
     if (!formData.judulFpp) {
       errors.judulFpp = 'Judul FPP wajib diisi';
@@ -205,13 +240,15 @@ function RegisterFPP() {
       errors.jenisProjectOther = 'Silakan masukkan jenis project';
     }
     
-    // PIC validation
-    if (formData.department && formData.tim && formData.pic) {
-      const allowedPICs = getFilteredUsers();
-      if (!allowedPICs.includes(formData.pic)) {
-        errors.pic = `PIC "${formData.pic}" tidak valid untuk ${formData.department} - ${formData.tim}`;
-      }
-    }
+    // 🔥 HAPUS validasi PIC di sini
+    // if (user && user.userType === 'TIM' && formData.department && formData.tim && formData.pic) {
+    //   const allowedPICs = getFilteredUsers();
+    //   const currentUserPIC = currentUser.picName || currentUser.pic;
+      
+    //   if (formData.pic !== currentUserPIC && !allowedPICs.includes(formData.pic)) {
+    //     errors.pic = `PIC "${formData.pic}" tidak valid untuk ${formData.department} - ${formData.tim}`;
+    //   }
+    // }
     
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -254,9 +291,12 @@ function RegisterFPP() {
     }
   };
 
+  // 🔥 PERUBAHAN: Load dari session storage dengan user context
   const loadFromSessionStorage = () => {
     try {
       console.log('🔍 Checking sessionStorage for edit data...');
+      console.log('👤 Current user from auth:', user);
+      
       const sessionKeys = ['editFppDraft', 'editDraft', 'fppEditData'];
       let editData = null;
       let foundKey = null;
@@ -272,28 +312,17 @@ function RegisterFPP() {
       }
       
       if (editData) {
-        console.log('📦 Parsed edit data:', {
-          draftId: editData.draftId,
-          fppEntryId: editData.fppEntryId,
-          noFpp: editData.noFpp,
-          isEditMode: editData.isEditMode,
-          keys: Object.keys(editData)
-        });
-        
-        if (foundKey) {
-          sessionStorage.removeItem(foundKey);
-        }
-        
+        // Gunakan data dari user login jika tidak ada di session
         const safeData = {
           masterProjectType: editData.masterProjectType || 'noProject',
           masterProjectNumber: editData.masterProjectNumber || '',
           masterProjectName: editData.masterProjectName || '',
           projectDepartments: editData.projectDepartments || [],
           skalaProject: editData.skalaProject || '',
-          // projectDepartments: editData.projectDepartments || [],
+          // 🔥 PERUBAHAN: Gunakan data dari currentUser jika kosong
           department: editData.department || currentUser.department,
           tim: editData.tim || currentUser.tim,
-          pic: editData.pic || currentUser.pic,
+          pic: editData.pic || currentUser.picName || currentUser.pic,
           noFpp: editData.noFpp || '',
           judulFpp: editData.judulFpp || '',
           jenisProject: editData.jenisProject || '',
@@ -325,7 +354,7 @@ function RegisterFPP() {
               }))
             : [{ department: '', tim: '', pic: '', outputs: [] }],
           approvalDate: editData.approvalDate || '',
-            parafData: editData.parafData || initialParafData.map((item, index) => ({
+          parafData: editData.parafData || initialParafData.map((item, index) => ({
             ...item,
             jabatan: editData.parafData?.[index]?.jabatan || item.jabatan,
             keterangan: editData.parafData?.[index]?.keterangan || ''
@@ -333,10 +362,10 @@ function RegisterFPP() {
         };
         
         console.log('🔄 Setting form data with:', {
-          noFpp: safeData.noFpp,
           department: safeData.department,
           tim: safeData.tim,
-          timProjectCount: safeData.timProject.length
+          pic: safeData.pic,
+          currentUser: currentUser
         });
         
         setFormData(safeData);
@@ -345,22 +374,21 @@ function RegisterFPP() {
           setIsEditMode(true);
           if (editData.draftId) {
             setEditDraftId(editData.draftId);
-            console.log('✏️ Edit mode activated with draftId:', editData.draftId);
           }
           if (editData.fppEntryId) {
             setEditFppEntryId(editData.fppEntryId);
-            console.log('📄 FPP Entry ID set:', editData.fppEntryId);
           }
           
           showAlert('Draft berhasil di-load untuk diedit!', 'info');
         }
       } else {
         console.log('ℹ️ No edit data found in sessionStorage');
+        // 🔥 PERUBAHAN: Set default dari currentUser
         setFormData(prev => ({
           ...prev,
           department: currentUser.department,
           tim: currentUser.tim,
-          pic: currentUser.pic
+          pic: currentUser.picName || currentUser.pic
         }));
       }
     } catch (error) {
@@ -452,7 +480,34 @@ function RegisterFPP() {
         return deptData[formData.tim];
       }
     }
+    
+    // Fallback: jika user login sebagai HEAD, tampilkan semua user
+    if (user && (user.role === 'head' || user.isHead)) {
+      return ORGANIZATION_STRUCTURE[formData.department]?.[formData.tim] || [];
+    }
+    
     return [];
+  };
+
+  // 🔥 PERUBAHAN: Validasi PIC untuk user login
+  const validatePICForCurrentUser = (picToValidate) => {
+    // Jika user adalah HEAD, bypass validasi
+    if (user && (user.role === 'head' || user.isHead)) {
+      return true;
+    }
+    
+    // Jika user adalah TIM, validasi berdasarkan login
+    if (user && user.userType === 'TIM') {
+      const userFullTim = getUserFullTim();
+      const expectedPIC = user.picName || user.pic;
+      
+      // Jika PIC yang dipilih sama dengan user login, valid
+      if (picToValidate === expectedPIC) {
+        return true;
+      }
+    }
+    
+    return false;
   };
 
   const getFilteredPICsForTimProject = (timProjectIndex) => {
@@ -1104,17 +1159,18 @@ function RegisterFPP() {
       }
     }
     
+    // 🔥 HAPUS validasi PIC mandatory
     // Validasi PIC
-    if (formData.department && formData.tim && formData.pic) {
-      const allowedPICs = getFilteredUsers();
-      if (!allowedPICs.includes(formData.pic)) {
-        showAlert(
-          `PIC "${formData.pic}" tidak valid untuk ${formData.department} - ${formData.tim}`,
-          'danger'
-        );
-        return;
-      }
-    }
+    // if (formData.department && formData.tim && formData.pic) {
+    //   const allowedPICs = getFilteredUsers();
+    //   if (!allowedPICs.includes(formData.pic)) {
+    //     showAlert(
+    //       `PIC "${formData.pic}" tidak valid untuk ${formData.department} - ${formData.tim}`,
+    //       'danger'
+    //     );
+    //     return;
+    //   }
+    // }
     
     // Validasi jenis project lainnya
     if (formData.jenisProject === 'Lainnya' && !formData.jenisProjectOther) {
@@ -1124,7 +1180,7 @@ function RegisterFPP() {
 
     // Filter tim project yang lengkap
     const completeTimProjects = formData.timProject.filter(tim => 
-      tim.department && tim.tim && tim.pic
+      tim.department && tim.tim // 🔥 DIUBAH: Hapus validasi pic
     );
     
     // Jika ada tim project tidak lengkap, konfirmasi
@@ -1190,10 +1246,10 @@ function RegisterFPP() {
         skalaProject: formData.skalaProject,
         projectDepartments: formData.projectDepartments, // ✅ PASTIKAN INI ADA
         
-        // PIC Data
+        // PIC Data - 🔥 PIC bisa kosong
         department: formData.department,
         tim: formData.tim,
-        pic: formData.pic,
+        pic: formData.pic || '', // 🔥 Bisa kosong
         
         // FPP Data
         noFpp: formData.noFpp || '',
@@ -1325,9 +1381,9 @@ function RegisterFPP() {
       masterProjectName: '',
       skalaProject: '',
       projectDepartments: [],
-      department: currentUser.department,
-      tim: currentUser.tim,
-      pic: currentUser.pic,
+      department: '', // 🔥 Kosongkan
+      tim: '', // 🔥 Kosongkan
+      pic: '', // 🔥 Kosongkan
       noFpp: '',
       judulFpp: '',
       jenisProject: '',
@@ -1358,6 +1414,187 @@ function RegisterFPP() {
     setFormErrors({});
     setFppExistsError('');
   };
+
+  const renderUserInfoFormGroup = () => {
+    // Jika user adalah HEAD, tampilkan semua pilihan dengan default dari login
+    if (user && (user.role === 'head' || user.isHead)) {
+      return (
+        <>
+          <Col md={4}>
+            <Form.Group>
+              <Form.Label>Departemen</Form.Label>
+              <Form.Select
+                name="department"
+                value={formData.department || ''}
+                onChange={handleChange}
+                isInvalid={!!formErrors.department}
+              >
+                <option value="">Pilih Departemen</option>
+                <option value="PPD">PPD</option>
+                <option value="DPA">DPA</option>
+                <option value="UUD">UUD</option>
+                <option value="PDM">PDM</option>
+              </Form.Select>
+              {formErrors.department && (
+                <Form.Text className="text-danger">{formErrors.department}</Form.Text>
+              )}
+            </Form.Group>
+          </Col>
+          <Col md={4}>
+            <Form.Group>
+              <Form.Label>Tim</Form.Label>
+              <Form.Select
+                name="tim"
+                value={formData.tim || ''}
+                onChange={handleChange}
+                // disabled={!formData.department}
+                isInvalid={!!formErrors.tim}
+              >
+                <option value="">Pilih Tim</option>
+                {formData.department && UNIT_DETAILS[formData.department]?.map((detail) => (
+                  <option key={detail} value={detail}>{detail}</option>
+                ))}
+              </Form.Select>
+              {formErrors.tim && (
+                <Form.Text className="text-danger">{formErrors.tim}</Form.Text>
+              )}
+            </Form.Group>
+          </Col>
+          <Col md={4}>
+            <Form.Group>
+              <Form.Label>PIC</Form.Label> {/* 🔥 Hapus tanda bintang */}
+              <Form.Select
+                name="pic"
+                value={formData.pic || ''}
+                onChange={handleChange}
+                // disabled={!formData.department || !formData.tim}
+                isInvalid={!!formErrors.pic}
+              >
+                <option value="">Pilih PIC</option> {/* 🔥 TAMBAHKAN OPSI KOSONG */}
+                {getFilteredUsers().map((userName, index) => (
+                  <option key={`${formData.department}-${formData.tim}-${userName}-${index}`} value={userName}>
+                    {userName}
+                  </option>
+                ))}
+              </Form.Select>
+              {formErrors.pic && (
+                <Form.Text className="text-danger">{formErrors.pic}</Form.Text>
+              )}
+            </Form.Group>
+          </Col>
+        </>
+      );
+    }
+    
+    // Jika user adalah TIM, tampilkan dengan autofill tapi bisa diedit
+    return (
+      <>
+        <Col md={4}>
+          <Form.Group>
+            <Form.Label>Departemen</Form.Label>
+            <Form.Select
+              name="department"
+              value={formData.department || currentUser.department}
+              onChange={handleChange}
+              isInvalid={!!formErrors.department}
+            >
+              <option value="">Pilih Departemen</option> {/* 🔥 TAMBAHKAN OPSI KOSONG */}
+              <option value={currentUser.department}>{currentUser.department}</option>
+              {user && user.department !== 'PPD' && <option value="PPD">PPD</option>}
+              {user && user.department !== 'DPA' && <option value="DPA">DPA</option>}
+              {user && user.department !== 'UUD' && <option value="UUD">UUD</option>}
+              {user && user.department !== 'PDM' && <option value="PDM">PDM</option>}
+            </Form.Select>
+            {formErrors.department && (
+              <Form.Text className="text-danger">{formErrors.department}</Form.Text>
+            )}
+          </Form.Group>
+        </Col>
+        <Col md={4}>
+          <Form.Group>
+            <Form.Label>Tim</Form.Label>
+            <Form.Select
+              name="tim"
+              value={formData.tim || currentUser.tim}
+              onChange={handleChange}
+              // disabled={!formData.department}
+              isInvalid={!!formErrors.tim}
+            >
+              <option value="">Pilih Tim</option> {/* 🔥 TAMBAHKAN OPSI KOSONG */}
+              <option value={currentUser.tim}>{currentUser.tim}</option>
+              {formData.department && UNIT_DETAILS[formData.department]?.map((detail) => {
+                if (detail === currentUser.tim) return null;
+                return (
+                  <option key={detail} value={detail}>{detail}</option>
+                );
+              }).filter(Boolean)}
+            </Form.Select>
+            {formErrors.tim && (
+              <Form.Text className="text-danger">{formErrors.tim}</Form.Text>
+            )}
+          </Form.Group>
+        </Col>
+        <Col md={4}>
+          <Form.Group>
+            <Form.Label>PIC</Form.Label> {/* 🔥 Hapus tanda bintang */}
+            <Form.Select
+              name="pic"
+              value={formData.pic || ''}
+              onChange={handleChange}
+              // disabled={!formData.department || !formData.tim}
+              isInvalid={!!formErrors.pic}
+            >
+              <option value="">Pilih PIC</option> {/* 🔥 TAMBAHKAN OPSI KOSONG */}
+              <option value={currentUser.picName || currentUser.pic}>
+                {currentUser.picName || currentUser.pic}
+              </option>
+              {getFilteredUsers().map((userName, index) => {
+                if (userName === (currentUser.picName || currentUser.pic)) return null;
+                return (
+                  <option key={`${formData.department}-${formData.tim}-${userName}-${index}`} value={userName}>
+                    {userName}
+                  </option>
+                );
+              }).filter(Boolean)}
+            </Form.Select>
+            {formErrors.pic && (
+              <Form.Text className="text-danger">{formErrors.pic}</Form.Text>
+            )}
+          </Form.Group>
+        </Col>
+      </>
+    );
+  };
+
+  // 🔥 PERUBAHAN: Cek user login di awal
+  useEffect(() => {
+    console.log('🚀 RegisterFPP Component Mounted');
+    console.log('👤 Current user:', user);
+    
+    // Redirect jika tidak login
+    if (!user || !user.isLoggedIn) {
+      console.log('❌ User not logged in, redirecting to login');
+      navigate('/login');
+      return;
+    }
+    
+    const initializeData = async () => {
+      setInitialLoading(true);
+      try {
+        await fetchData();
+        loadFromSessionStorage();
+      } catch (error) {
+        console.error('Error initializing:', error);
+      } finally {
+        setInitialLoading(false);
+      }
+    };
+    
+    initializeData();
+    return () => {
+      console.log('🧹 Cleaning up RegisterFPP component');
+    };
+  }, [user]); // 🔥 TAMBAHKAN user sebagai dependency
 
   // =============== RENDER ===============
   if (initialLoading) {
@@ -1587,84 +1824,7 @@ function RegisterFPP() {
               <strong className='ms-3'>Project</strong>
               <Card.Body>
                 <Row className="mb-3">
-                  <Col md={4}>
-                    <Form.Group>
-                      <Form.Label>Departemen <span className="text-danger"> *</span></Form.Label>
-                      <Form.Select
-                        name="department"
-                        value={formData.department}
-                        onChange={handleChange}
-                        required
-                        isInvalid={!!formErrors.department}
-                      >
-                        <option value=""> </option>
-                        <option value="PPD">PPD</option>
-                        <option value="DPA">DPA</option>
-                        <option value="UUD">UUD</option>
-                        <option value="PDM">PDM</option>
-                      </Form.Select>
-                      {formErrors.department && (
-                        <Form.Text className="text-danger">{formErrors.department}</Form.Text>
-                      )}
-                      <Form.Text className="text-muted">
-                        Auto-filled from login: {currentUser.department}
-                      </Form.Text>
-                    </Form.Group>
-                  </Col>
-                  <Col md={4}>
-                    <Form.Group>
-                      <Form.Label>Tim <span className="text-danger"> *</span></Form.Label>
-                      <Form.Select
-                        name="tim"
-                        value={formData.tim}
-                        onChange={handleChange}
-                        required
-                        disabled={!formData.department}
-                        isInvalid={!!formErrors.tim}
-                      >
-                        <option value=""> </option>
-                        {formData.department && UNIT_DETAILS[formData.department]?.map((detail) => (
-                          <option key={detail} value={detail}>{detail}</option>
-                        ))}
-                      </Form.Select>
-                      {formErrors.tim && (
-                        <Form.Text className="text-danger">{formErrors.tim}</Form.Text>
-                      )}
-                      <Form.Text className="text-muted">
-                        Auto-filled from login: {currentUser.tim}
-                      </Form.Text>
-                    </Form.Group>
-                  </Col>
-                  <Col md={4}>
-                    <Form.Group>
-                      <Form.Label>PIC <span className="text-danger"> *</span></Form.Label>
-                      <Form.Select
-                        name="pic"
-                        value={formData.pic}
-                        onChange={handleChange}
-                        required
-                        disabled={!formData.department || !formData.tim}
-                        isInvalid={!!formErrors.pic}
-                      >
-                        <option value=""> 
-                          {!formData.department || !formData.tim 
-                            ? "Pilih Departemen dan TIM terlebih dahulu" 
-                            : "Pilih PIC"}
-                        </option>
-                        {getFilteredUsers().map((userName, index) => (
-                          <option key={`${formData.department}-${formData.tim}-${userName}-${index}`} value={userName}>
-                            {userName}
-                          </option>
-                        ))}
-                      </Form.Select>
-                      {formErrors.pic && (
-                        <Form.Text className="text-danger">{formErrors.pic}</Form.Text>
-                      )}
-                      <Form.Text className="text-muted">
-                        Auto-filled from login: {currentUser.pic}
-                      </Form.Text>
-                    </Form.Group>
-                  </Col>
+                  {renderUserInfoFormGroup()}
                 </Row>
 
                 <Row className="mb-3">
@@ -1974,7 +2134,7 @@ function RegisterFPP() {
                             <Form.Select
                               value={tim.tim || ''}
                               onChange={(e) => handleTimProjectChange(index, 'tim', e.target.value)}
-                              disabled={!tim.department}
+                              // disabled={!tim.department}
                             >
                               <option value="">Pilih TIM</option>
                               {tim.department && UNIT_DETAILS[tim.department]?.map((detail) => (
@@ -1990,7 +2150,7 @@ function RegisterFPP() {
                             <Form.Select
                               value={tim.pic}
                               onChange={(e) => handleTimProjectChange(index, 'pic', e.target.value)}
-                              disabled={!tim.department || !tim.tim}
+                              // disabled={!tim.department || !tim.tim}
                             >
                               <option value="">Pilih PIC</option>
                               {getFilteredPICsForTimProject(index).map((userName, idx) => (

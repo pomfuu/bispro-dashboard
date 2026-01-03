@@ -1,5 +1,6 @@
 // src/Pages/Draft.js
 import React, { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { 
   Container, 
   Card, 
@@ -33,6 +34,7 @@ function Draft() {
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [selectedDraft, setSelectedDraft] = useState(null);
   const navigate = useNavigate();
+  const { user, getUserFullTim, hasAccessToProject } = useAuth();
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -40,8 +42,18 @@ function Draft() {
 
   useEffect(() => {
     console.log('📥 Draft.js mounted');
-    fetchDrafts();
-  }, []);
+    console.log('👤 Current user:', user);
+    
+    // Jika user sudah login, fetch drafts
+    if (user && user.isLoggedIn) {
+      fetchDrafts();
+    } else if (user === null) {
+      // Jika user null (belum login), redirect ke login
+      console.log('❌ User not logged in, redirecting to login');
+      navigate('/login');
+    }
+    // Jika user masih loading, tunggu
+  }, [user]); // 🔥 TAMBAHKAN user sebagai dependency
 
   useEffect(() => {
     applySearch();
@@ -52,20 +64,73 @@ function Draft() {
     setLoading(true);
     try {
       console.log('🔄 Fetching drafts from Firebase...');
+      console.log('👤 Current user:', user);
+      
       const draftsSnapshot = await getDocs(collection(db, 'fpp_drafts'));
       const draftsList = draftsSnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
       
-      draftsList.sort((a, b) => {
+      // 🔥 FILTER DRAFT BERDASARKAN USER LOGIN
+      let filteredByUser = [];
+      
+      if (user && user.isLoggedIn) {
+        // Jika user adalah HEAD, tampilkan semua draft
+        if (user.role === 'head' || user.isHead) {
+          console.log('👑 HEAD user - showing all drafts');
+          filteredByUser = draftsList;
+        } 
+        // Jika user adalah TIM
+        else if (user.userType === 'TIM') {
+          const userFullTim = getUserFullTim();
+          console.log('👤 TIM user:', userFullTim);
+          
+          filteredByUser = draftsList.filter(draft => {
+            // 1. Cek apakah user adalah PIC utama
+            if (draft.pic === userFullTim) {
+              console.log('✅ User is main PIC for draft:', draft.noFpp);
+              return true;
+            }
+            
+            // 2. Cek apakah user ada di timProject
+            if (draft.timProject && Array.isArray(draft.timProject)) {
+              const isInvolved = draft.timProject.some(tp => {
+                const memberFullTim = `${tp.department || ''}-${tp.tim || ''}`;
+                return memberFullTim === userFullTim;
+              });
+              if (isInvolved) {
+                console.log('✅ User is in project team for draft:', draft.noFpp);
+                return true;
+              }
+            }
+            
+            // 3. Cek apakah draft dari departemen dan tim yang sama
+            if (draft.department === user.department && draft.tim === user.tim) {
+              console.log('✅ User from same department/tim for draft:', draft.noFpp);
+              return true;
+            }
+            
+            return false;
+          });
+          
+          console.log(`✅ Filtered ${filteredByUser.length} out of ${draftsList.length} drafts for TIM user`);
+        }
+      } else {
+        console.log('❌ User not logged in, no drafts shown');
+        filteredByUser = [];
+      }
+      
+      // Urutkan berdasarkan tanggal
+      filteredByUser.sort((a, b) => {
         const dateA = new Date(a.tanggalDraft || 0);
         const dateB = new Date(b.tanggalDraft || 0);
         return dateB - dateA;
       });
       
-      console.log(`✅ Loaded ${draftsList.length} drafts`);
-      setDrafts(draftsList);
+      console.log(`✅ Loaded ${filteredByUser.length} drafts (filtered for user)`);
+      setDrafts(filteredByUser);
+      
     } catch (error) {
       console.error('❌ Error fetching drafts:', error);
       showAlert('Error mengambil data draft: ' + error.message, 'danger');
@@ -108,8 +173,12 @@ function Draft() {
     console.log('✏️ Editing draft:', {
       id: draft.id,
       noFpp: draft.noFpp,
-      timProject: draft.timProject
+      department: draft.department,
+      tim: draft.tim,
+      userDepartment: user?.department,
+      userTim: user?.tim
     });
+    
     
     try {
       // Pastikan semua data terstruktur dengan benar
@@ -154,26 +223,26 @@ function Draft() {
             }
           ];
       
-      const editData = {
-        isEditMode: true,
-        draftId: draft.id,
-        fppEntryId: draft.fppEntryId || null,
-        
-        // Master Project
-        masterProjectType: draft.masterProjectType || 'noProject',
-        masterProjectNumber: draft.masterProjectNumber || '',
-        masterProjectName: draft.masterProjectName || '',
-        skalaProject: draft.skalaProject || '', // ✅ TAMBAHKAN
-        
-        // Project Departments (checkbox)
-        projectDepartments: Array.isArray(draft.projectDepartments) 
-          ? draft.projectDepartments 
-          : [], // ✅ TAMBAHKAN
-        
-        // PIC Data
-        department: draft.department || '',
-        tim: draft.tim || '',
-        pic: draft.pic || '',
+          const editData = {
+            isEditMode: true,
+            draftId: draft.id,
+            fppEntryId: draft.fppEntryId || null,
+            
+            // Master Project
+            masterProjectType: draft.masterProjectType || 'noProject',
+            masterProjectNumber: draft.masterProjectNumber || '',
+            masterProjectName: draft.masterProjectName || '',
+            skalaProject: draft.skalaProject || '',
+            
+            // Project Departments
+            projectDepartments: Array.isArray(draft.projectDepartments) 
+              ? draft.projectDepartments 
+              : [],
+            
+            // PIC Data - 🔥 PERHATIKAN: Gunakan data dari draft, bukan user login
+            department: draft.department || '',
+            tim: draft.tim || '',
+            pic: draft.pic || user.picName || user.pic, // Gunakan pic dari draft atau user
         
         // FPP Data
         noFpp: draft.noFpp || '',
@@ -223,6 +292,22 @@ function Draft() {
   };
 
   const handleDeleteDraft = async (draftId) => {
+    // 🔥 TAMBAHKAN: Cari draft untuk validasi
+    const draftToDelete = drafts.find(d => d.id === draftId);
+    if (!draftToDelete) return;
+    
+    // Validasi apakah user boleh hapus draft ini
+    const userFullTim = getUserFullTim();
+    const isAuthorized = 
+      user.role === 'head' || user.isHead ||
+      draftToDelete.pic === userFullTim ||
+      (draftToDelete.department === user.department && draftToDelete.tim === user.tim);
+    
+    if (!isAuthorized) {
+      showAlert('Anda tidak memiliki akses untuk menghapus draft ini', 'danger');
+      return;
+    }
+    
     if (window.confirm('Apakah Anda yakin ingin menghapus draft ini?')) {
       setLoading(true);
       try {
@@ -238,6 +323,18 @@ function Draft() {
   };
 
   const handleSubmitDraft = (draft) => {
+    // 🔥 TAMBAHKAN: Validasi akses submit
+    const userFullTim = getUserFullTim();
+    const isAuthorized = 
+      user.role === 'head' || user.isHead ||
+      draft.pic === userFullTim ||
+      (draft.department === user.department && draft.tim === user.tim);
+    
+    if (!isAuthorized) {
+      showAlert('Anda tidak memiliki akses untuk mensubmit draft ini', 'danger');
+      return;
+    }
+    
     if (!draft.approvalDate) {
       showAlert('Approval date belum diisi! Isi dulu sebelum submit.', 'warning');
       return;
@@ -374,8 +471,21 @@ function Draft() {
   return (
     <Container className="py-4">
       <div className="mb-4">
-        <div className="d-flex fs-5 fw-semibold align-items-center">
-          <div bg="secondary" className="me-2">DRAFT FPP</div>
+        <div className="d-flex fs-5 fw-semibold align-items-center justify-content-between">
+          <div>DRAFT FPP</div>
+          {user && user.isLoggedIn && (
+            <div className="d-flex align-items-center gap-2">
+              <Badge bg={user.role === 'head' ? 'danger' : 'primary'}>
+                {user.role === 'head' ? 'HEAD' : 'TIM'}
+              </Badge>
+              <Badge bg="secondary">
+                {user.department || ''}-{user.tim || ''}
+              </Badge>
+              <Badge bg="light" text="dark">
+                {user.picName || user.pic}
+              </Badge>
+            </div>
+          )}
         </div>
       </div>
 

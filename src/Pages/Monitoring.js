@@ -313,66 +313,66 @@ function Monitoring() {
 
 
   // Kemudian di useEffect:
+  // Di dalam useEffect
   useEffect(() => {
     fetchMonitoringData();
     fetchAllUsers();
     
     if (user) {
-      const userDept = user.unit || user.tim || '';
-      setUserDepartment(userDept.toUpperCase());
+      // Update user department untuk display
+      setUserDepartment(user.department || '');
       
       // Cek apakah user adalah head
-      const isHead = checkIfHeadUser();
+      const isHead = user.role === 'head' || user.isHead;
       setIsHeadUser(isHead);
+      
+      console.log('👤 User info in Monitoring:', {
+        user: user,
+        department: user.department,
+        isHead: isHead
+      });
     }
   }, [user]);
 
   // ========== FUNGSI UNTUK CEK AKSES EDIT ==========
   
-  const canUserEditItem = (item) => {
-    // 1. Cek apakah user adalah head (password inputmaster)
-    // Gunakan checkIfHeadUser() langsung daripada state isHeadUser
-    if (checkIfHeadUser()) {
+  const hasAccessToFpp = (fpp) => {
+    if (!user || !user.isLoggedIn) return false;
+    
+    // HEAD bisa akses semua
+    if (user.role === 'head' || user.isHead) {
       return true;
     }
     
-    // 2. Cek apakah user terlibat dalam project berdasarkan department
-    const userDeptUpper = userDepartment.toUpperCase();
-    
-    // Jika user dari department yang sama dengan PIC utama
-    if (item.department && item.department.toUpperCase() === userDeptUpper) {
-      return true;
+    // Jika FPP tidak punya projectDepartments, anggap tidak ada akses
+    if (!fpp.projectDepartments || 
+        (Array.isArray(fpp.projectDepartments) && fpp.projectDepartments.length === 0)) {
+      console.warn(`FPP ${fpp.noFpp} tidak punya projectDepartments`);
+      return false;
     }
     
-    // Cek di timProject
-    if (item.timProject && Array.isArray(item.timProject)) {
-      const isInvolved = item.timProject.some(tim => {
-        // Cek department di tim project
-        if (tim.department && tim.department.toUpperCase() === userDeptUpper) {
-          return true;
-        }
-        
-        // Cek berdasarkan nama PIC
-        if (tim.pic) {
-          const userFromDB = allUsers.find(u => 
-            u.nama && u.nama.toLowerCase() === tim.pic.toLowerCase()
-          );
-          
-          if (userFromDB && userFromDB.unit) {
-            const picDept = userFromDB.unit.toUpperCase();
-            return picDept === userDeptUpper;
-          }
-        }
-        
-        return false;
-      });
-      
-      if (isInvolved) {
-        return true;
-      }
+    // Format projectDepartments menjadi array
+    let projectDepts = [];
+    if (Array.isArray(fpp.projectDepartments)) {
+      projectDepts = fpp.projectDepartments.map(dept => dept.trim().toUpperCase());
+    } else if (typeof fpp.projectDepartments === 'string') {
+      projectDepts = fpp.projectDepartments
+        .split(',')
+        .map(dept => dept.trim().toUpperCase())
+        .filter(dept => dept);
     }
     
-    return false;
+    // Cek apakah user department ada dalam projectDepartments
+    const userDept = user.department?.toUpperCase();
+    const hasAccess = projectDepts.includes(userDept);
+    
+    console.log(`🔍 Access check for ${fpp.noFpp}:`, {
+      userDept,
+      projectDepts,
+      hasAccess
+    });
+    
+    return hasAccess;
   };
 
   const fetchMonitoringData = async () => {
@@ -408,10 +408,12 @@ function Monitoring() {
         return dateB - dateA;
       });
 
-      // Filter data berdasarkan akses user
+      // Filter data berdasarkan akses user (menggunakan hasAccessToFpp)
       let filteredData = allData;
-      if (!isHeadUser && userDepartment) {
-        filteredData = allData.filter(item => canUserEditItem(item));
+      if (!isHeadUser && user && user.department) {
+        filteredData = allData.filter(item => hasAccessToFpp(item));
+        
+        console.log(`📊 Filtered ${filteredData.length} out of ${allData.length} FPPs for user ${user.department}`);
       }
       
       setMonitoringData(filteredData);
@@ -1184,7 +1186,7 @@ function Monitoring() {
   
   const handleOpenRevisiFPPModal = (item) => {
     // Cek apakah user boleh melakukan revisi FPP
-    if (!canUserEditItem(item)) {
+    if (!hasAccessToFpp(item)) {
       showAlert('Anda tidak memiliki akses untuk merevisi FPP ini.', 'warning');
       return;
     }
@@ -1410,8 +1412,8 @@ function Monitoring() {
 // }, []);
 
   const handleOpenEditModal = (item) => {
-    // Cek apakah user boleh mengedit project ini
-    if (!canUserEditItem(item)) {
+    // Cek apakah user memiliki akses ke FPP ini
+    if (!hasAccessToFpp(item)) {
       showAlert('Anda tidak memiliki akses untuk mengedit project ini. Hanya user dari department terkait yang dapat mengedit.', 'warning');
       return;
     }
@@ -1602,6 +1604,11 @@ function Monitoring() {
   const handleSubmitUpdate = async () => {
     // ✅ PERBAIKAN: Validasi berdasarkan perubahan, bukan hanya tanggal selesai
     const changes = hasChanges();
+
+      if (!selectedItem || !hasAccessToFpp(selectedItem)) {
+        showAlert('Anda tidak memiliki akses untuk mengupdate project ini.', 'danger');
+        return;
+      }
     
     if (!changes) {
       showAlert('Tidak ada perubahan yang disimpan.', 'info');
@@ -1790,7 +1797,7 @@ function Monitoring() {
                   const targetDate = findLastTargetDate(item.rencanaPenugasan);
                   const statusBadge = getStatusBadgeInfo(item);
                   const globalIndex = (currentPage - 1) * itemsPerPage + index + 1;
-                  const canEdit = canUserEditItem(item);
+                  const canEdit = hasAccessToFpp (item);
                   
                   return (
                     <tr key={item.id} className="align-middle">
@@ -2367,7 +2374,7 @@ function Monitoring() {
   const renderEditModal = () => {
     if (!selectedItem) return null;
     
-    const canEdit = canUserEditItem(selectedItem);
+    const canEdit = hasAccessToFpp (selectedItem);
     const allPICs = getAllAvailablePICs();
     
     // Format tanggal untuk input type="date"
@@ -2984,15 +2991,20 @@ function Monitoring() {
       <div className="d-flex justify-content-between align-items-center mb-4">
         <div>
           <div className="h3 fw-semibold fs-5">Monitoring Project</div>
-          {userDepartment && (
+          {user && user.isLoggedIn && (
             <div className="text-muted small">
-              Akses: <Badge bg={isHeadUser ? "danger" : "info"}>{isHeadUser ? "HEAD User (Full Access)" : `Department: ${userDepartment}`}</Badge>
+              <Badge bg={isHeadUser ? "danger" : "info"} className="me-2">
+                {isHeadUser ? "HEAD - Full Access" : `TIM - ${user.department}`}
+              </Badge>
+              {!isHeadUser && (
+                <span>
+                  Hanya melihat FPP dengan Project Departments: <strong>{user.department}</strong>
+                </span>
+              )}
             </div>
           )}
         </div>
         <div className="d-flex gap-2">
-          {/* Tombol debug sementara */}
-          
           <Button 
             variant="success"
             onClick={exportToExcel}
@@ -3001,20 +3013,6 @@ function Monitoring() {
           >
             <FaFileExcel /> Export Excel
           </Button>
-          {/* <Button 
-            variant="outline-primary" 
-            onClick={fetchMonitoringData}
-            disabled={loading}
-          >
-            {loading ? (
-              <>
-                <Spinner size="sm" animation="border" className="me-2" />
-                Loading...
-              </>
-            ) : (
-              <><FaDownload /> Refresh Data</>
-            )}
-          </Button> */}
         </div>
       </div>
       

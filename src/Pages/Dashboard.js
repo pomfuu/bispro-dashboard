@@ -571,6 +571,26 @@ function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
+  const getTimestamp = (fpp) => {
+    if (fpp.createdAt) {
+      if (typeof fpp.createdAt.toDate === 'function') {
+        return fpp.createdAt.toDate().getTime();
+      } else if (fpp.createdAt.seconds) {
+        return fpp.createdAt.seconds * 1000;
+      } else {
+        return new Date(fpp.createdAt).getTime();
+      }
+    } else if (fpp.updatedAt) {
+      if (typeof fpp.updatedAt.toDate === 'function') {
+        return fpp.updatedAt.toDate().getTime();
+      } else if (fpp.updatedAt.seconds) {
+        return fpp.updatedAt.seconds * 1000;
+      } else {
+        return new Date(fpp.updatedAt).getTime();
+      }
+    }
+    return new Date().getTime();
+  };
   // State untuk filter
   const [filters, setFilters] = useState({
     jenisProject: '',
@@ -588,14 +608,21 @@ function Dashboard() {
 
   // State untuk pagination
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 30;
+  const itemsPerPage = 20;
   
   // Cek apakah user adalah Head (password: inputmaster)
   const isHead = user?.role === 'head' || user?.isHead || user?.userType === 'head';
   
   // Get user's department untuk filter access
   const getUserDepartment = () => {
-    if (!user) return '';
+    if (!user || !user.isLoggedIn) return '';
+    
+    // HEAD user
+    if (user.role === 'head' || user.isHead) {
+      return 'ALL';
+    }
+    
+    // TIM user
     return user.department || '';
   };
 
@@ -605,22 +632,24 @@ function Dashboard() {
   
   // Fungsi untuk memeriksa apakah user memiliki akses ke FPP berdasarkan Project Departments
   const hasAccessToFpp = (fpp) => {
-    if (!user) return false;
+    if (!user || !user.isLoggedIn) return false;
     
     // HEAD bisa akses semua
-    if (isHead) {
+    if (user.role === 'head' || user.isHead) {
       return true;
     }
     
-    // User biasa - cek akses berdasarkan Project Departments
-    if (!fpp.projectDepartments) {
+    // Jika FPP tidak punya projectDepartments, anggap tidak ada akses
+    if (!fpp.projectDepartments || 
+        (Array.isArray(fpp.projectDepartments) && fpp.projectDepartments.length === 0)) {
+      console.warn(`FPP ${fpp.noFpp} tidak punya projectDepartments`);
       return false;
     }
     
-    // Format projectDepartments menjadi array jika string
+    // Format projectDepartments menjadi array
     let projectDepts = [];
     if (Array.isArray(fpp.projectDepartments)) {
-      projectDepts = fpp.projectDepartments.map(dept => dept.toUpperCase());
+      projectDepts = fpp.projectDepartments.map(dept => dept.trim().toUpperCase());
     } else if (typeof fpp.projectDepartments === 'string') {
       projectDepts = fpp.projectDepartments
         .split(',')
@@ -629,8 +658,8 @@ function Dashboard() {
     }
     
     // Cek apakah user department ada dalam projectDepartments
-    const userDeptUpper = userDepartment.toUpperCase();
-    return projectDepts.includes(userDeptUpper);
+    const userDept = user.department?.toUpperCase();
+    return projectDepts.includes(userDept);
   };
 
   // Fungsi untuk memfilter data berdasarkan akses user
@@ -643,44 +672,28 @@ function Dashboard() {
       return [];
     }
     
-    // User biasa hanya bisa melihat data yang terkait dengan mereka berdasarkan Project Departments
-    return data.filter(fpp => hasAccessToFpp(fpp));
+    // Filter berdasarkan projectDepartments
+    const filteredData = data.filter(fpp => hasAccessToFpp(fpp));
+    
+    console.log(`Filtered ${filteredData.length} out of ${data.length} FPPs for user ${user.department}`);
+    return filteredData;
   };
 
   // ========== END PERBAIKAN ==========
 
   // Fungsi untuk grouping data
-  const groupByMasterProject = (data) => {
+  const flatFppList = (data) => {
     if (!data || data.length === 0) return [];
     
-    const grouped = {};
-    
-    data.forEach(fpp => {
-      const masterProjectNumber = fpp.masterProjectNumber || 
-                                 fpp.noFpp || 
-                                 'NO-PROJECT-' + fpp.id;
-      
-      const masterProjectName = fpp.masterProjectName || 
-                               fpp.judulFpp || 
-                               'No Project Name';
-      
-      const masterProjectType = fpp.masterProjectType || 'project';
-      
-      if (!grouped[masterProjectNumber]) {
-        grouped[masterProjectNumber] = {
-          masterProject: {
-            masterProjectNumber: masterProjectNumber,
-            masterProjectName: masterProjectName,
-            masterProjectType: masterProjectType
-          },
-          fppEntries: []
-        };
-      }
-      
-      grouped[masterProjectNumber].fppEntries.push(fpp);
-    });
-    
-    return Object.values(grouped);
+    // Buat flat list dari semua FPP
+    return data.map(fpp => ({
+      masterProject: {
+        masterProjectNumber: fpp.masterProjectNumber,
+        masterProjectName: fpp.masterProjectName,
+        masterProjectType: fpp.masterProjectType
+      },
+      fppEntries: [fpp] // Setiap group hanya berisi 1 FPP
+    }));
   };
 
   // Setup real-time listener
@@ -731,13 +744,17 @@ function Dashboard() {
           createdAt: item.createdAt || new Date(),
           updatedAt: item.updatedAt || new Date()
         }));
+
+
         
-        // Filter data berdasarkan akses user
         const updatedAccessibleData = filterByUserAccess(updatedFormattedData);
-        
         setFppEntries(updatedAccessibleData);
+
+        const newFlatList = createFlatFppList(updatedAccessibleData); // GANTI INI
+        setGroupedData(newFlatList);
+        applyFiltersToData(newFlatList);
         
-        const newGrouped = groupByMasterProject(updatedAccessibleData);
+        const newGrouped = flatFppList(updatedAccessibleData);
         setGroupedData(newGrouped);
         
         applyFiltersToData(newGrouped);
@@ -817,11 +834,32 @@ function Dashboard() {
           createdAt: item.createdAt || new Date(),
           updatedAt: item.updatedAt || new Date()
         }));
-        
-        const accessibleData = filterByUserAccess(formattedData);
+
+        const validData = formattedData.filter(item => {
+          if (!item.projectDepartments || 
+              (Array.isArray(item.projectDepartments) && item.projectDepartments.length === 0)) {
+            console.warn(`FPP ${item.noFpp} tidak punya projectDepartments, akan difilter`);
+            return false;
+          }
+          return true;
+        });
+        // SORTING: Urutkan berdasarkan tanggal masuk (terbaru di atas)
+        const sortedValidData = validData.sort((a, b) => {
+          const timeA = getTimestamp(a);
+          const timeB = getTimestamp(b);
+          return timeB - timeA; // Descending (terbaru di atas)
+        });
+
+        console.log(`Total FPPs: ${formattedData.length}, Valid FPPs (with projectDepartments): ${sortedValidData.length}`);
+
+        const accessibleData = filterByUserAccess(sortedValidData);
         setFppEntries(accessibleData);
+
+        const flatList = createFlatFppList(accessibleData); // GANTI INI
+        setGroupedData(flatList); // Nama state tetap sama
+        applyFiltersToData(flatList);
         
-        const grouped = groupByMasterProject(accessibleData);
+        const grouped = flatFppList(accessibleData);
         setGroupedData(grouped);
         applyFiltersToData(grouped);
         
@@ -872,6 +910,16 @@ function Dashboard() {
     const allFppEntries = data.flatMap(group => group.fppEntries);
     const totalFppEntries = allFppEntries.length;
     
+    // HITUNG MASTER PROJECT UNIK: Ambil semua masterProjectNumber yang unik
+    const uniqueMasterProjects = new Set();
+    data.forEach(group => {
+      const masterProjectNumber = group.masterProject?.masterProjectNumber;
+      if (masterProjectNumber) {
+        uniqueMasterProjects.add(masterProjectNumber);
+      }
+    });
+    
+    // HITUNG STATUS per FPP
     const inProgress = allFppEntries.filter(fpp => 
       fpp.status === 'In Progress' || fpp.status === 'submitted' || fpp.status === 'draft'
     ).length;
@@ -884,7 +932,7 @@ function Dashboard() {
     const revisi = allFppEntries.filter(fpp => fpp.status === 'Revisi FPP').length;
 
     return {
-      totalMasterProjects: data.length,
+      totalMasterProjects: uniqueMasterProjects.size, // PERUBAHAN: pakai size dari Set, bukan data.length
       totalFppEntries: totalFppEntries,
       inProgress,
       hold,
@@ -1003,8 +1051,7 @@ function Dashboard() {
     const endIndex = startIndex + itemsPerPage;
     const paginatedData = data.slice(startIndex, endIndex);
     setDisplayData(paginatedData);
-  };
-
+};
   // Setup filters saat mounted atau data berubah
   useEffect(() => {
     applyFiltersToData(groupedData);
@@ -1149,15 +1196,34 @@ function Dashboard() {
   // Hitung KPI data
   const kpiData = calculateKpiData(filteredData);
   
-  // Get unique values untuk dropdown filters
   const getUniqueValues = (key) => {
     const values = new Set();
     filteredData.forEach(group => {
-      group.fppEntries.forEach(fpp => {
-        if (fpp[key]) values.add(fpp[key]);
-      });
+      const fpp = group.fppEntries[0]; // Ambil FPP pertama
+      if (fpp[key]) values.add(fpp[key]);
     });
     return Array.from(values).sort();
+  };
+
+  const createFlatFppList = (data) => {
+    if (!data || data.length === 0) return [];
+    
+    // Urutkan berdasarkan timestamp terlebih dahulu
+    const sortedData = [...data].sort((a, b) => {
+      const timeA = getTimestamp(a);
+      const timeB = getTimestamp(b);
+      return timeB - timeA; // Descending (terbaru di atas)
+    });
+    
+    // Buat flat list
+    return sortedData.map(fpp => ({
+      masterProject: {
+        masterProjectNumber: fpp.masterProjectNumber,
+        masterProjectName: fpp.masterProjectName,
+        masterProjectType: fpp.masterProjectType
+      },
+      fppEntries: [fpp]
+    }));
   };
 
   // Format date untuk display
@@ -1352,19 +1418,26 @@ function Dashboard() {
 
         {/* Filters Section */}
         <Card className="mb-4 container">
-          <Card.Header className="bg-light">
-            <div className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center">
-              <h5 className="mb-2 mb-md-0">Filters</h5>
-              <div className="d-flex flex-wrap gap-2">
-                <Button variant="outline-secondary" size="sm" onClick={resetFilters}>
-                  Reset Filters
-                </Button>
-                <Button variant="success" size="sm" onClick={exportToExcel}>
-                  <FaFileExcel className="me-1" /> Export Excel
-                </Button>
-              </div>
+        <Card.Header className="bg-light">
+          <div className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center">
+            <h5 className="mb-2 mb-md-0">
+              Data FPP 
+              {activeKpiFilter && (
+                <Badge bg="warning" className="ms-2">
+                  Filter: {activeKpiFilter}
+                </Badge>
+              )}
+            </h5>
+            <div>
+              <small className="text-muted">
+                Menampilkan {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, filteredData.length)} 
+                dari {filteredData.length} project
+                <br />
+                (Halaman {currentPage} dari {totalPages})
+              </small>
             </div>
-          </Card.Header>
+          </div>
+        </Card.Header>
           <Card.Body>
             <Row className="g-2">
               {/* Search Input */}
@@ -1438,7 +1511,7 @@ function Dashboard() {
                     <option key={idx} value={dept}>{dept}</option>
                   ))}
                 </Form.Select>
-                {!isHead && <small className="text-muted">Filter department hanya untuk Head</small>}
+                {/* {!isHead && <small className="text-muted">Filter department hanya untuk Head</small>} */}
               </Col>
 
               <Col xs={12} sm={6} md={4} lg={2} className="mb-2">
@@ -1543,16 +1616,21 @@ function Dashboard() {
                         <th style={{ minWidth: '120px' }}>Approval Date</th>
                         <th style={{ minWidth: '100px' }}>Target Quarter</th>
                         <th style={{ minWidth: '120px' }}>Durasi/Sisa</th>
-                        <th style={{ minWidth: '80px' }}>Done</th>
+                        {/* <th style={{ minWidth: '80px' }}>Done</th> */}
                         <th style={{ minWidth: '120px' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {displayData.map((group, groupIndex) => (
+                      {displayData.flatMap((group, groupIndex) => 
                         group.fppEntries.map((fpp, fppIndex) => {
+                          // PERBAIKAN PERHITUNGAN INDEX: Hitung berdasarkan total FPP yang sudah ditampilkan sebelumnya
+                          const previousFppCount = displayData
+                            .slice(0, groupIndex)
+                            .reduce((total, g) => total + g.fppEntries.length, 0);
+                          
                           const overallIndex = ((currentPage - 1) * itemsPerPage) + 
-                                            groupIndex * group.fppEntries.length + 
-                                            fppIndex + 1;
+                                              previousFppCount + 
+                                              fppIndex + 1;
                           
                           return (
                             <tr key={`${fpp.id || fpp.noFpp}-${fppIndex}`}>
@@ -1575,6 +1653,7 @@ function Dashboard() {
                                   {fpp.judulFpp}
                                 </div>
                               </td>
+                              
                               <td style={{ maxWidth: '120px' }}>
                                 <Badge bg={
                                   fpp.skalaProject === 'Small' ? 'success' :
@@ -1627,13 +1706,6 @@ function Dashboard() {
                                   {calculateDuration(fpp)}
                                 </Badge>
                               </td>
-                              <td style={{ maxWidth: '80px' }}>
-                                {fpp.doneChecklist ? (
-                                  <Badge bg="success">✓</Badge>
-                                ) : (
-                                  <Badge bg="secondary">-</Badge>
-                                )}
-                              </td>
                               <td style={{ maxWidth: '120px' }}>
                                 <div className="d-flex gap-1 flex-wrap">
                                   <Button 
@@ -1659,7 +1731,7 @@ function Dashboard() {
                             </tr>
                           );
                         })
-                      ))}
+                      )}
                     </tbody>
                   </Table>
                 </div>
